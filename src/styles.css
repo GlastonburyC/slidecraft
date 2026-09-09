@@ -477,3 +477,43 @@ input.search::-webkit-search-cancel-button { filter: invert(0.6); }
 .mini[aria-pressed="true"], .btn[aria-pressed="true"] {
   color: var(--text-faint); border-color: var(--border);
 }
+
+/* ---------- sidebar tabs ---------- */
+
+.tabs {
+  display: flex; gap: 2px; padding: 8px 8px 0;
+  border-bottom: 1px solid var(--border); flex: none;
+}
+.tab {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  position: relative; padding: 7px 2px 8px; border: 0; border-radius: 6px 6px 0 0;
+  background: transparent; color: var(--text-faint); font: inherit; font-size: 10.5px;
+  cursor: pointer; min-width: 0;
+}
+.tab span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.tab:hover { color: var(--text-dim); background: #191f26; }
+.tab[aria-selected="true"] { color: var(--accent); background: #12211f; }
+.tab[aria-selected="true"]::after {
+  content: ""; position: absolute; left: 6px; right: 6px; bottom: -1px;
+  height: 2px; background: var(--accent); border-radius: 2px;
+}
+.tab-badge {
+  position: absolute; top: 3px; right: 6px;
+  font: 9px/1 var(--mono); color: var(--text-faint);
+}
+
+/* The pinned object list keeps its own scroll, below the tabbed tools. */
+.sidebar-pinned {
+  flex: none; border-top: 1px solid var(--border); background: #0e1216;
+  max-height: 42%; overflow-y: auto; overscroll-behavior: contain;
+}
+.sidebar-pinned::-webkit-scrollbar { width: 8px; }
+.sidebar-pinned::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+
+.snippet {
+  margin: 6px 0 0; padding: 8px 10px; border-radius: 6px;
+  background: #0d1116; border: 1px solid var(--border);
+  font: 10.5px/1.55 var(--mono); color: var(--text-dim);
+  white-space: pre-wrap; overflow-x: auto;
+}
+details.picker-hint summary { cursor: pointer; }

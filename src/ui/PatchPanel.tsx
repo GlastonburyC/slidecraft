@@ -3,6 +3,9 @@ import { useAnnotations } from "../annotate/store";
 import { pickRoi, roiHint } from "../annotate/pickRoi";
 import { useMl } from "../ml/mlStore";
 import { buildPatchGrid } from "../ml/patchGrid";
+import {
+  patchReaderSnippet, patchStem, toPatchGeoJSON, toPatchManifest,
+} from "../ml/patchExport";
 import type { SlideMeta } from "../slide/types";
 
 /**
@@ -20,6 +23,18 @@ import type { SlideMeta } from "../slide/types";
  */
 
 const SIZES = [64, 128, 224, 256, 384, 512];
+
+function download(text: string, filename: string, type: string) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Revoked on the next tick, so the download has certainly started.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 export function PatchPanel({ meta }: { meta: SlideMeta }) {
   const items = useAnnotations((s) => s.items);
@@ -136,12 +151,50 @@ export function PatchPanel({ meta }: { meta: SlideMeta }) {
       )}
 
       {shown && (
-        <dl className="kv">
-          <dt>Patches</dt>
-          <dd>{shown.patches.length.toLocaleString()} of {shown.cols * shown.rows}</dd>
-          <dt>Grid</dt>
-          <dd>{shown.cols} × {shown.rows}</dd>
-        </dl>
+        <>
+          <dl className="kv">
+            <dt>Patches</dt>
+            <dd>{shown.patches.length.toLocaleString()} of {shown.cols * shown.rows}</dd>
+            <dt>Grid</dt>
+            <dd>{shown.cols} × {shown.rows}</dd>
+          </dl>
+
+          {/* The grid leaves as coordinates, not pixels: whatever consumes it
+              re-reads the slide, so nothing has to be copied out of here. */}
+          <div className="row-actions">
+            <button
+              className="btn"
+              title="Coordinates plus a snippet that reads them with OpenSlide"
+              onClick={() => {
+                const manifest = toPatchManifest(shown, meta);
+                download(
+                  JSON.stringify(manifest, null, 2),
+                  `${patchStem(meta.name)}.patches.json`,
+                  "application/json",
+                );
+              }}
+            >
+              Export coordinates
+            </button>
+            <button
+              className="btn"
+              title="The same squares as GeoJSON, to open beside the slide"
+              onClick={() =>
+                download(
+                  JSON.stringify(toPatchGeoJSON(shown, meta)),
+                  `${patchStem(meta.name)}.patches.geojson`,
+                  "application/geo+json",
+                )
+              }
+            >
+              Export GeoJSON
+            </button>
+          </div>
+          <details className="picker-hint">
+            <summary>Read these in Python</summary>
+            <pre className="snippet">{patchReaderSnippet(toPatchManifest(shown, meta))}</pre>
+          </details>
+        </>
       )}
       {grid && roi && grid.roiId !== roi.id && (
         <div className="hint">The grid belongs to another ROI. Rebuild it for this one.</div>

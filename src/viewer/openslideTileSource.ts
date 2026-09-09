@@ -52,6 +52,70 @@ function toUnshared(a: Uint8ClampedArray): Uint8ClampedArray<ArrayBuffer> {
   ) as Uint8ClampedArray<ArrayBuffer>;
 }
 
+/** What one OSD tile resolves to: a region to read, and the size to draw it at. */
+export interface TilePlan {
+  /** Top-left of the read, in level-0 slide pixels (what readRegion expects). */
+  x0: number;
+  y0: number;
+  /** OpenSlide level to read from. */
+  osLevel: number;
+  /** Read size, in that level's own pixels. */
+  rw: number;
+  rh: number;
+  /** Size the tile occupies on the OSD grid. */
+  tw: number;
+  th: number;
+}
+
+/**
+ * Map an OSD tile to an OpenSlide read.
+ *
+ * Pulled out of the download path so it can be checked without a viewer: the
+ * arithmetic crosses three coordinate frames — the synthetic power-of-two grid,
+ * level-0 slide pixels (offset by the MIRAX scan region), and the chosen
+ * OpenSlide level's own pixels — and a mistake in any of them reads the wrong
+ * part of the slide rather than failing.
+ */
+export function planTile(
+  meta: { levels: { width: number; height: number; downsample: number }[] },
+  frame: { width: number; height: number; offsetX: number; offsetY: number; maxLevel: number },
+  level: number,
+  col: number,
+  row: number,
+): TilePlan | null {
+  const { levels } = meta;
+  const downsamples = levels.map((l) => l.downsample);
+
+  // Downsample from level 0 that this OSD level represents.
+  const scale = 2 ** (frame.maxLevel - level);
+  const levelW = Math.ceil(frame.width / scale);
+  const levelH = Math.ceil(frame.height / scale);
+
+  const tx = col * TILE_SIZE;
+  const ty = row * TILE_SIZE;
+  const tw = Math.min(TILE_SIZE, levelW - tx);
+  const th = Math.min(TILE_SIZE, levelH - ty);
+  if (tw <= 0 || th <= 0) return null;
+
+  // Tile origin in the level-0 frame (what readRegion expects for x/y).
+  const x0 = Math.round(frame.offsetX + tx * scale);
+  const y0 = Math.round(frame.offsetY + ty * scale);
+
+  const osLevel = bestLevelFor(downsamples, scale);
+  const osDs = downsamples[osLevel];
+
+  // Read size expressed in the chosen OpenSlide level's own frame, clamped to
+  // what that level actually contains. Without the clamp, coarse tiles ask for
+  // regions far past the level's edge, which OpenSlide services by decoding and
+  // zero-filling a huge area for a tiny output.
+  const maxW = Math.max(1, levels[osLevel].width - Math.floor(x0 / osDs));
+  const maxH = Math.max(1, levels[osLevel].height - Math.floor(y0 / osDs));
+  const rw = Math.min(maxW, Math.max(1, Math.round((tw * scale) / osDs)));
+  const rh = Math.min(maxH, Math.max(1, Math.round((th * scale) / osDs)));
+
+  return { x0, y0, osLevel, rw, rh, tw, th };
+}
+
 export function createOpenSlideTileSource(source: SlideSource): OpenSlideTileSource {
   const { levels, bounds } = source.meta;
   const downsamples = levels.map((l) => l.downsample);
@@ -127,35 +191,18 @@ export function createOpenSlideTileSource(source: SlideSource): OpenSlideTileSou
     void (async () => {
       const started = performance.now();
       try {
-        // Downsample from level 0 that this OSD level represents.
-        const scale = 2 ** (maxLevel - level);
-        const levelW = Math.ceil(width / scale);
-        const levelH = Math.ceil(height / scale);
-
-        const tx = col * TILE_SIZE;
-        const ty = row * TILE_SIZE;
-        const tw = Math.min(TILE_SIZE, levelW - tx);
-        const th = Math.min(TILE_SIZE, levelH - ty);
-        if (tw <= 0 || th <= 0) {
+        const plan = planTile(
+          source.meta,
+          { width, height, offsetX, offsetY, maxLevel },
+          level,
+          col,
+          row,
+        );
+        if (!plan) {
           context.finish(null, null as never, "Tile out of bounds");
           return;
         }
-
-        // Tile origin in the level-0 frame (what readRegion expects for x/y).
-        const x0 = Math.round(offsetX + tx * scale);
-        const y0 = Math.round(offsetY + ty * scale);
-
-        const osLevel = bestLevelFor(downsamples, scale);
-        const osDs = downsamples[osLevel];
-
-        // Read size expressed in the chosen OpenSlide level's own frame, clamped
-        // to what that level actually contains. Without the clamp, coarse tiles
-        // ask for regions far past the level's edge, which OpenSlide services by
-        // decoding and zero-filling a huge area for a tiny output.
-        const maxW = Math.max(1, levels[osLevel].width - Math.floor(x0 / osDs));
-        const maxH = Math.max(1, levels[osLevel].height - Math.floor(y0 / osDs));
-        const rw = Math.min(maxW, Math.max(1, Math.round((tw * scale) / osDs)));
-        const rh = Math.min(maxH, Math.max(1, Math.round((th * scale) / osDs)));
+        const { x0, y0, osLevel, rw, rh, tw, th } = plan;
 
         const rgba = await source.readRegion(x0, y0, osLevel, rw, rh, controller.signal);
         if (controller.signal.aborted) return;

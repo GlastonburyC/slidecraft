@@ -137,12 +137,12 @@
 <p>Formats: <code>.svs</code> <code>.ndpi</code> <code>.mrxs</code> <code>.tif</code>/<code>.tiff</code>/<code>.btf</code> <code>.scn</code> <code>.vms</code>/<code>.vmu</code> DICOM.</p>
 <p>Drop many at once — the <strong>Slides</strong> list is filterable once there are more than a handful. Right-click a slide, or press <kbd>Backspace</kbd> on it, to remove it from the list; its annotations are kept.</p>
 <h3>2. Get around</h3>
-<table><tr><th></th><th></th></tr><tr><td>Zoom</td><td>Scroll wheel</td></tr><tr><td>Pan</td><td><kbd>H</kbd> tool, or hold the <strong>middle mouse button</strong> with any tool</td></tr><tr><td>Show/hide annotations</td><td><kbd>Space</kbd></td></tr><tr><td>Select</td><td><kbd>V</kbd> — <kbd>Shift</kbd>-click adds, <kbd>Backspace</kbd> deletes</td></tr></table>
+<table><tr><th></th><th></th></tr><tr><td>Zoom</td><td>Scroll wheel</td></tr><tr><td>Pan</td><td><kbd>H</kbd> tool, or hold the <strong>middle mouse button</strong> with any tool</td></tr><tr><td>Switch panel</td><td>The tabs at the top of the left panel: Slides, Annotate, Tissue, Cells, Patches</td></tr><tr><td>Show/hide annotations</td><td><kbd>Space</kbd></td></tr><tr><td>Select</td><td><kbd>V</kbd> — <kbd>Shift</kbd>-click adds, <kbd>Backspace</kbd> deletes</td></tr></table>
 <p><kbd>Space</kbd> is worth the muscle memory: comparing a boundary against the tissue underneath it is the most repeated action in the app.</p>
 <h3>3. Annotate</h3>
 <p>Pick a tool from the rail. Each has a one-key shortcut, shown on the button.</p>
 <table><tr><th>Key</th><th>Tool</th><th>Notes</th></tr><tr><td><kbd>R</kbd></td><td>Rectangle</td><td></td></tr><tr><td><kbd>P</kbd></td><td>Polygon</td><td>Click vertices; <kbd>Enter</kbd> or double-click closes, <kbd>Esc</kbd> cancels</td></tr><tr><td><kbd>F</kbd></td><td>Freehand</td><td>Drag to trace</td></tr><tr><td><kbd>B</kbd></td><td>Brush</td><td>Merges with the same class underneath. <strong>Right-click the tool for size.</strong></td></tr><tr><td><kbd>E</kbd></td><td>Eraser</td><td>Subtracts from anything it touches</td></tr><tr><td><kbd>N</kbd></td><td>Point</td><td>Counting points</td></tr><tr><td><kbd>O</kbd></td><td>ROI</td><td>The working frame for patching and prediction</td></tr><tr><td><kbd>G</kbd></td><td>Click-to-segment</td><td>One click per cell</td></tr></table>
-<p><strong>Classes are yours.</strong> There are no defaults. Right-click an object to name a class, or use the Classes panel; <kbd>1</kbd>–<kbd>9</kbd> switch between the first nine.</p>
+<p><strong>Classes are yours.</strong> There are no defaults. Right-click an object to name a class, or use the <strong>Annotate</strong> tab; <kbd>1</kbd>–<kbd>9</kbd> switch between the first nine. Each class has a visibility toggle — hiding the tissue class is the quickest way to see the nuclei drawn on top of it, and hiding is not deleting: the objects stay, and stay exported.</p>
 <p><strong>ROIs resize.</strong> Select one and drag any corner or edge handle.</p>
 <h3>4. Detect tissue</h3>
 <p>In the <strong>Tissue</strong> panel, click <strong>Detect tissue</strong>.</p>
@@ -178,6 +178,9 @@
 <p>Draw an ROI with <kbd>O</kbd>, then in <strong>Patches</strong> choose a size in pixels (128×128, 256×256) and a pyramid level, and <strong>Lay grid over ROI</strong>.</p>
 <p>Patches are specified in pixels at a level, not in microns, because that is how an encoder is defined — a ViT sees a fixed pixel tensor. The panel reports the micron size each patch covers, since that is what decides whether the grid is looking at cells or at architecture, and it differs between scanners for the same pixel count.</p>
 <p><strong>Only where there is tissue</strong> clips the grid to detected tissue, so an ROI drawn loosely round a fragment does not spend the encoder on glass.</p>
+<p>The grid leaves as coordinates rather than as image files:</p>
+<ul><li><strong>Export coordinates</strong> writes <code>&lt;slide&gt;.patches.json</code> — every patch's top-left in level-0 pixels, plus the level and size, which is exactly what <code>read_region(x, y, level, size, size)</code> takes. The panel includes the Python to read them back.</li><li><strong>Export GeoJSON</strong> writes the same squares as polygons, to open beside the slide and check what was patched.</li></ul>
+<p>Nothing is copied out of the browser, so the patches cannot drift from the slide they came from.</p>
 <h3>10. Export</h3>
 <p>The Annotations panel exports GeoJSON in level-0 slide pixels, with QuPath's</p>
 <p>directions.</p>

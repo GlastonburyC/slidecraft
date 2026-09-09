@@ -29,6 +29,7 @@ from the list; its annotations are kept.
 |---|---|
 | Zoom | Scroll wheel |
 | Pan | <kbd>H</kbd> tool, or hold the **middle mouse button** with any tool |
+| Switch panel | The tabs at the top of the left panel: Slides, Annotate, Tissue, Cells, Patches |
 | Show/hide annotations | <kbd>Space</kbd> |
 | Select | <kbd>V</kbd> — <kbd>Shift</kbd>-click adds, <kbd>Backspace</kbd> deletes |
 
@@ -51,8 +52,10 @@ Pick a tool from the rail. Each has a one-key shortcut, shown on the button.
 | <kbd>G</kbd> | Click-to-segment | One click per cell |
 
 **Classes are yours.** There are no defaults. Right-click an object to name a
-class, or use the Classes panel; <kbd>1</kbd>–<kbd>9</kbd> switch between the
-first nine.
+class, or use the **Annotate** tab; <kbd>1</kbd>–<kbd>9</kbd> switch between the
+first nine. Each class has a visibility toggle — hiding the tissue class is the
+quickest way to see the nuclei drawn on top of it, and hiding is not deleting:
+the objects stay, and stay exported.
 
 **ROIs resize.** Select one and drag any corner or edge handle.
 
@@ -171,6 +174,18 @@ same pixel count.
 
 **Only where there is tissue** clips the grid to detected tissue, so an ROI
 drawn loosely round a fragment does not spend the encoder on glass.
+
+The grid leaves as coordinates rather than as image files:
+
+- **Export coordinates** writes `<slide>.patches.json` — every patch's top-left
+  in level-0 pixels, plus the level and size, which is exactly what
+  `read_region(x, y, level, size, size)` takes. The panel includes the Python
+  to read them back.
+- **Export GeoJSON** writes the same squares as polygons, to open beside the
+  slide and check what was patched.
+
+Nothing is copied out of the browser, so the patches cannot drift from the
+slide they came from.
 
 ## 10. Export
 

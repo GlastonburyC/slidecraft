@@ -12,6 +12,7 @@ import { AnnotationMenus } from "./AnnotationMenus";
 import { activeModel, TISSUE_CLASS } from "../ml/tissueTraining";
 import { ModelPanel } from "./ModelPanel";
 import { PatchPanel } from "./PatchPanel";
+import { SidebarTabs, type SidebarTab } from "./SidebarTabs";
 import { TissueModelPanel } from "./TissueModelPanel";
 import { SegmentPanel } from "./SegmentPanel";
 import type { SegmentController } from "../ml/segmentController";
@@ -33,6 +34,7 @@ export function App() {
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
   const [source, setSource] = useState<SlideSource | null>(null);
   const [slideFilter, setSlideFilter] = useState("");
+  const [tab, setTab] = useState<SidebarTab>("slides");
   const [loading, setLoading] = useState(false);
   const [openPhase, setOpenPhase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -322,6 +324,12 @@ export function App() {
           <span className="phase">PHASE 2</span>
         </div>
 
+        <SidebarTabs
+          active={tab}
+          onChange={setTab}
+          badge={{ slides: slides.length || undefined }}
+        />
+
         <div className="sidebar-scroll">
           {!isolated && (
             <div className="section">
@@ -332,6 +340,7 @@ export function App() {
             </div>
           )}
 
+          {tab === "slides" && (
           <div className="dropzone">
             <strong>Drop slides here</strong>
             <span>.svs · .ndpi · .mrxs · .tiff · .scn · .vms · DICOM</span>
@@ -344,6 +353,7 @@ export function App() {
               </button>
             </div>
           </div>
+          )}
           <input
             ref={fileInput}
             data-testid="file-input"
@@ -372,7 +382,7 @@ export function App() {
             <div className="section"><div className="note err">{error}</div></div>
           )}
 
-          {slides.length > 0 && (
+          {tab === "slides" && slides.length > 0 && (
             <section className="section">
               <h2>Slides — {slides.length}</h2>
               {/* A batch is hundreds of slides; without a filter the list is a
@@ -433,7 +443,7 @@ export function App() {
           {/* Detecting tissue, correcting it and training on those
               corrections are one activity, so they sit together — the
               correction is the training example. */}
-          {source && segmenter && (
+          {tab === "tissue" && source && segmenter && (
             <TissueModelPanel
               source={source}
               onDetectTissue={() => {
@@ -448,7 +458,7 @@ export function App() {
               }}
             />
           )}
-          {source && segmenter && (
+          {tab === "cells" && source && segmenter && (
             <SegmentPanel
               onEncode={() => void segmenter.encodeView()}
               onEncodeRoi={(id) => {
@@ -457,17 +467,24 @@ export function App() {
               }}
             />
           )}
-          {source && segmenter && (
+          {tab === "cells" && source && segmenter && (
             <ModelPanel
               onPrefetchAll={() => void segmenter.prefetchAll()}
               onLoad={() => void segmenter.loadModel()}
             />
           )}
-          {source && <PatchPanel meta={source.meta} />}
-          {source && <AnnotationPanel meta={source.meta} />}
-          {source && <AnnotationList mpp={source.meta.mppX} onFocus={focusAnnotation} />}
-          {source && <MetadataPanel meta={source.meta} />}
+          {tab === "patches" && source && <PatchPanel meta={source.meta} />}
+          {tab === "annotate" && source && <AnnotationPanel meta={source.meta} />}
+          {/* Slide metadata belongs with the slide it describes. */}
+          {tab === "slides" && source && <MetadataPanel meta={source.meta} />}
         </div>
+
+        {/* Pinned: what you are working on stays visible in every mode. */}
+        {source && (
+          <div className="sidebar-pinned">
+            <AnnotationList mpp={source.meta.mppX} onFocus={focusAnnotation} />
+          </div>
+        )}
       </aside>
 
       <main className="stage">
