@@ -1,0 +1,27 @@
+node_modules/
+dist/
+*.local
+.DS_Store
+
+# Model weights and their metadata are large and often licence-gated.
+*.onnx
+*.onnx.json
+
+# Never commit credentials.
+.env
+.env.*
+*token*.txt
+
+# ONNX Runtime wasm assets: vendor build artefacts, recreated by
+# scripts/setup-ort.mjs on install. 97 MB that npm already has.
+public/ort/
+
+# Slides and their sidecars are data, never source.
+*.svs
+*.ndpi
+*.mrxs
+*.scn
+*.vms
+*.vmu
+*.btf
+*.bif

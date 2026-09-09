@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title><!--TITLE--></title>
+<link rel="icon" href="favicon.svg">
+<style>
+  :root {
+    --bg: #0b0d10; --panel: #12161b; --line: #222a33; --line-2: #2e3844;
+    --text: #e6edf3; --dim: #9aa7b4; --faint: #6b7885;
+    --accent: #4fd1c5; --accent-dim: #2a6f68;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.65 var(--sans); -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 24px; }
+
+  header { border-bottom: 1px solid var(--line); background: #0e1216; }
+  .bar { display: flex; align-items: center; gap: 12px; padding: 16px 0; }
+  .bar h1 { font-size: 17px; margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+  .bar nav { margin-left: auto; display: flex; gap: 20px; font-size: 14px; }
+  .bar nav a { color: var(--dim); }
+
+  .hero { padding: 72px 0 56px; }
+  .hero h2 {
+    font-size: clamp(30px, 5vw, 46px); line-height: 1.12; margin: 0 0 20px;
+    letter-spacing: -0.025em; font-weight: 650; max-width: 18ch;
+  }
+  .hero p { font-size: 18px; color: var(--dim); max-width: 62ch; margin: 0 0 14px; }
+  .hero .note { font-size: 15px; color: var(--faint); }
+  .cta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 30px; }
+  .btn {
+    display: inline-block; padding: 10px 18px; border-radius: 7px;
+    border: 1px solid var(--accent-dim); background: #12211f; color: var(--accent);
+    font-size: 14.5px; font-weight: 500;
+  }
+  .btn:hover { background: #16302c; text-decoration: none; }
+  .btn.plain { border-color: var(--line-2); background: var(--panel); color: var(--text); }
+
+  section { padding: 52px 0; border-top: 1px solid var(--line); }
+  h3 { font-size: 22px; margin: 0 0 10px; letter-spacing: -0.015em; }
+  section > .wrap > p { color: var(--dim); max-width: 68ch; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-top: 28px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; }
+  .card h4 { margin: 0 0 7px; font-size: 15px; }
+  .card p { margin: 0; font-size: 14.5px; color: var(--dim); line-height: 1.6; }
+
+  pre {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 18px; overflow-x: auto; font: 13.5px/1.7 var(--mono); color: #d6e2ee;
+  }
+  code { font-family: var(--mono); font-size: 0.93em; }
+  p code { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+
+  ol.steps { counter-reset: s; list-style: none; padding: 0; margin: 26px 0 0; }
+  ol.steps li {
+    counter-increment: s; position: relative; padding: 0 0 20px 46px;
+    border-left: 1px solid var(--line); margin-left: 13px;
+  }
+  ol.steps li:last-child { border-left-color: transparent; padding-bottom: 0; }
+  ol.steps li::before {
+    content: counter(s); position: absolute; left: -13px; top: -2px;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--panel); border: 1px solid var(--line-2); color: var(--accent);
+    font: 600 12px/24px var(--mono); text-align: center;
+  }
+  ol.steps h4 { margin: 0 0 4px; font-size: 15.5px; }
+  ol.steps p { margin: 0; color: var(--dim); font-size: 14.5px; }
+
+  .shot { margin-top: 30px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
+  .shot img { display: block; width: 100%; }
+  .shot figcaption { padding: 10px 16px; font-size: 13px; color: var(--faint); border-top: 1px solid var(--line); }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 22px; font-size: 14.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  th { color: var(--faint); font-weight: 500; font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.05em; }
+  td:first-child { font-family: var(--mono); font-size: 13px; color: var(--accent); white-space: nowrap; }
+
+  footer { border-top: 1px solid var(--line); padding: 30px 0 50px; color: var(--faint); font-size: 13.5px; }
+  footer p { margin: 0 0 8px; max-width: 70ch; }
+
+  /* Generated prose. Kept narrow: this is a document, not a dashboard. */
+  article { max-width: 760px; margin: 0 auto; padding: 44px 24px 64px; }
+  article h2 { font-size: 27px; margin: 44px 0 14px; letter-spacing: -0.02em; }
+  article h2:first-child { margin-top: 0; }
+  article h3 { font-size: 19px; margin: 32px 0 10px; }
+  article p { color: var(--dim); }
+  article li { color: var(--dim); margin-bottom: 6px; }
+  article strong { color: var(--text); font-weight: 600; }
+  article hr { border: 0; border-top: 1px solid var(--line); margin: 40px 0; }
+  article blockquote {
+    margin: 20px 0; padding: 12px 18px; border-left: 2px solid var(--accent-dim);
+    background: var(--panel); border-radius: 0 8px 8px 0;
+  }
+  article blockquote p { margin: 0; font-size: 14.5px; }
+  article kbd {
+    font: 11.5px/1 var(--mono); padding: 3px 6px; border-radius: 4px;
+    background: #1b222a; border: 1px solid var(--line-2); color: var(--text);
+  }
+  article table td:first-child { color: var(--text); font-family: var(--sans); font-size: 14.5px; white-space: normal; }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap bar">
+    <svg width="22" height="22" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <rect x="6.5" y="2.5" width="19" height="27" rx="3" stroke="currentColor" stroke-width="1.6" opacity=".55"/>
+      <path d="M6.5 8.5h19" stroke="currentColor" stroke-width="1.6" opacity=".35" stroke-linecap="round"/>
+      <path d="M12.4 14.6c1.9-2.6 5.6-2.4 7 .2 1.2 2.2.4 4.6-1.6 5.7-2.2 1.2-5 .4-6-1.6-.8-1.6-.6-3.1.6-4.3Z" fill="#4fd1c5" opacity=".85"/>
+      <path d="M17.6 20.4c1.5-1.1 3.7-.5 4.3 1.2.5 1.5-.4 3-2 3.4-1.7.4-3.2-.6-3.4-2.2-.1-1 .3-1.9 1.1-2.4Z" fill="#4fd1c5" opacity=".45"/>
+      <circle cx="14.6" cy="17.2" r="2.5" fill="none" stroke="#0b0d10" stroke-width="1.5" opacity=".55"/>
+      <circle cx="14.6" cy="17.2" r="1.1" fill="#0b0d10" opacity=".7"/>
+    </svg>
+    <h1>Slidecraft</h1>
+    <nav>
+      <a href="#how">How it works</a>
+      <a href="TUTORIAL.html">Tutorial</a>
+      <a href="https://github.com/OWNER/slidecraft">GitHub</a>
+    </nav>
+  </div>
+</header>
+<article>
+<!--BODY-->
+</article>
+<footer>
+  <div class="wrap">
+    <p>
+      Slidecraft is MIT-licensed. OpenSlide and glib are LGPL-2.1 and are loaded
+      as an unmodified WebAssembly build. No model weights and no slides are
+      included.
+    </p>
+    <p>
+      Slidecraft is a research tool. It is not a medical device and is not for
+      diagnostic use.
+    </p>
+  </div>
+</footer>
+</body>
+</html>

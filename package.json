@@ -1,0 +1,45 @@
+{
+  "name": "slidecraft",
+  "version": "0.1.0",
+  "description": "Browser-native whole-slide image annotation with human-in-the-loop ML",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --reporter=dot",
+    "test:watch": "vitest",
+    "verify:tissue": "vitest run --dir scripts --reporter=verbose --silent=false",
+    "setup:ort": "node scripts/setup-ort.mjs",
+    "postinstall": "node scripts/setup-ort.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@conflux-xyz/openslide-wasm": "^2.3.0",
+    "@deck.gl/core": "^9.4.0",
+    "@deck.gl/layers": "^9.4.0",
+    "flatbush": "^4.6.2",
+    "idb": "^8.0.3",
+    "onnxruntime-web": "^1.29.0",
+    "openseadragon": "^6.1.0",
+    "polyclip-ts": "^0.16.8",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.0",
+    "@types/openseadragon": "^5.0.2",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "happy-dom": "^20.14.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2",
+    "vitest": "^5.0.0"
+  },
+  "private": true
+}

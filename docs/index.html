@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Slidecraft — whole-slide annotation in the browser</title>
+<meta name="description" content="Browser-native whole-slide image annotation with a human-in-the-loop tissue classifier. Slides never leave your machine.">
+<link rel="icon" href="favicon.svg">
+<style>
+  :root {
+    --bg: #0b0d10; --panel: #12161b; --line: #222a33; --line-2: #2e3844;
+    --text: #e6edf3; --dim: #9aa7b4; --faint: #6b7885;
+    --accent: #4fd1c5; --accent-dim: #2a6f68;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.65 var(--sans); -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 24px; }
+
+
+  /*
+   * The mark, animated once on load.
+   *
+   * It draws the slide, settles the specimen onto it, sweeps a scan line down,
+   * and finishes by picking out a single cell — which is the app's whole loop
+   * in five seconds. It runs once rather than looping: a permanent animation
+   * beside a paragraph is something to look away from, not at.
+   *
+   * Everything here is decorative, so it is skipped outright for anyone who
+   * asked for reduced motion; the mark is simply there, already drawn.
+   */
+  .mark { width: 132px; height: 132px; margin: 0 0 30px -6px; color: var(--dim); }
+  .mark svg { width: 100%; height: 100%; overflow: visible; }
+
+  .mark .glass, .mark .frost {
+    stroke-dasharray: 100;
+    stroke-dashoffset: 100;
+    animation: draw 1.1s cubic-bezier(.65,0,.35,1) forwards;
+  }
+  .mark .frost { animation-delay: .5s; }
+
+  .mark .tissue { fill: var(--accent); opacity: 0; transform-origin: 16px 18px; }
+  .mark .tissue.a { animation: settle .8s cubic-bezier(.22,1,.36,1) .9s forwards; }
+  .mark .tissue.b { animation: settle .8s cubic-bezier(.22,1,.36,1) 1.05s forwards; }
+
+  .mark .ring {
+    fill: none; stroke: #0b0d10; stroke-width: 1.5; opacity: 0;
+    transform-origin: 14.6px 17.2px;
+    animation: pick .7s cubic-bezier(.34,1.56,.64,1) 2.5s forwards;
+  }
+  .mark .nucleus {
+    fill: #0b0d10; opacity: 0;
+    animation: fade .5s ease 2.6s forwards;
+  }
+
+  /* A scan line crossing the slide, clipped to the glass by the same rect. */
+  .mark .sweep {
+    fill: url(#sweepGrad); opacity: 0;
+    animation: sweep 1.5s ease-in-out 1.6s;
+  }
+
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  @keyframes settle {
+    from { opacity: 0; transform: translateY(-3px) scale(.85); }
+    to   { opacity: .85; transform: none; }
+  }
+  @keyframes pick {
+    from { opacity: 0; transform: scale(2.2); }
+    to   { opacity: .6; transform: none; }
+  }
+  @keyframes fade { to { opacity: .7; } }
+  @keyframes sweep {
+    0%   { opacity: 0; }
+    20%  { opacity: .55; }
+    80%  { opacity: .55; }
+    100% { opacity: 0; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mark * { animation: none !important; }
+    .mark .glass, .mark .frost { stroke-dashoffset: 0; }
+    .mark .tissue { opacity: .85; }
+    .mark .ring { opacity: .6; }
+    .mark .nucleus { opacity: .7; }
+    .mark .sweep { opacity: 0; }
+  }
+
+  @media (max-width: 620px) { .mark { width: 96px; height: 96px; } }
+
+  header { border-bottom: 1px solid var(--line); background: #0e1216; }
+  .bar { display: flex; align-items: center; gap: 12px; padding: 16px 0; }
+  .bar h1 { font-size: 17px; margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+  .bar nav { margin-left: auto; display: flex; gap: 20px; font-size: 14px; }
+  .bar nav a { color: var(--dim); }
+
+  .hero { padding: 72px 0 56px; }
+  .hero h2 {
+    font-size: clamp(30px, 5vw, 46px); line-height: 1.12; margin: 0 0 20px;
+    letter-spacing: -0.025em; font-weight: 650; max-width: 18ch;
+  }
+  .hero p { font-size: 18px; color: var(--dim); max-width: 62ch; margin: 0 0 14px; }
+  .hero .note { font-size: 15px; color: var(--faint); }
+  .cta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 30px; }
+  .btn {
+    display: inline-block; padding: 10px 18px; border-radius: 7px;
+    border: 1px solid var(--accent-dim); background: #12211f; color: var(--accent);
+    font-size: 14.5px; font-weight: 500;
+  }
+  .btn:hover { background: #16302c; text-decoration: none; }
+  .btn.plain { border-color: var(--line-2); background: var(--panel); color: var(--text); }
+
+  section { padding: 52px 0; border-top: 1px solid var(--line); }
+  h3 { font-size: 22px; margin: 0 0 10px; letter-spacing: -0.015em; }
+  section > .wrap > p { color: var(--dim); max-width: 68ch; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-top: 28px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; }
+  .card h4 { margin: 0 0 7px; font-size: 15px; }
+  .card p { margin: 0; font-size: 14.5px; color: var(--dim); line-height: 1.6; }
+
+  pre {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 18px; overflow-x: auto; font: 13.5px/1.7 var(--mono); color: #d6e2ee;
+  }
+  code { font-family: var(--mono); font-size: 0.93em; }
+  p code { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+
+  ol.steps { counter-reset: s; list-style: none; padding: 0; margin: 26px 0 0; }
+  ol.steps li {
+    counter-increment: s; position: relative; padding: 0 0 20px 46px;
+    border-left: 1px solid var(--line); margin-left: 13px;
+  }
+  ol.steps li:last-child { border-left-color: transparent; padding-bottom: 0; }
+  ol.steps li::before {
+    content: counter(s); position: absolute; left: -13px; top: -2px;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--panel); border: 1px solid var(--line-2); color: var(--accent);
+    font: 600 12px/24px var(--mono); text-align: center;
+  }
+  ol.steps h4 { margin: 0 0 4px; font-size: 15.5px; }
+  ol.steps p { margin: 0; color: var(--dim); font-size: 14.5px; }
+
+  .shot { margin-top: 30px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
+  .shot img { display: block; width: 100%; }
+  .shot figcaption { padding: 10px 16px; font-size: 13px; color: var(--faint); border-top: 1px solid var(--line); }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 22px; font-size: 14.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  th { color: var(--faint); font-weight: 500; font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.05em; }
+  td:first-child { font-family: var(--mono); font-size: 13px; color: var(--accent); white-space: nowrap; }
+
+  footer { border-top: 1px solid var(--line); padding: 30px 0 50px; color: var(--faint); font-size: 13.5px; }
+  footer p { margin: 0 0 8px; max-width: 70ch; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap bar">
+    <svg width="22" height="22" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <rect x="6.5" y="2.5" width="19" height="27" rx="3" stroke="currentColor" stroke-width="1.6" opacity=".55"/>
+      <path d="M6.5 8.5h19" stroke="currentColor" stroke-width="1.6" opacity=".35" stroke-linecap="round"/>
+      <path d="M12.4 14.6c1.9-2.6 5.6-2.4 7 .2 1.2 2.2.4 4.6-1.6 5.7-2.2 1.2-5 .4-6-1.6-.8-1.6-.6-3.1.6-4.3Z" fill="#4fd1c5" opacity=".85"/>
+      <path d="M17.6 20.4c1.5-1.1 3.7-.5 4.3 1.2.5 1.5-.4 3-2 3.4-1.7.4-3.2-.6-3.4-2.2-.1-1 .3-1.9 1.1-2.4Z" fill="#4fd1c5" opacity=".45"/>
+      <circle cx="14.6" cy="17.2" r="2.5" fill="none" stroke="#0b0d10" stroke-width="1.5" opacity=".55"/>
+      <circle cx="14.6" cy="17.2" r="1.1" fill="#0b0d10" opacity=".7"/>
+    </svg>
+    <h1>Slidecraft</h1>
+    <nav>
+      <a href="#how">How it works</a>
+      <a href="TUTORIAL.html">Tutorial</a>
+      <a href="https://github.com/GlastonburyC/slidecraft">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap hero">
+  <div class="mark" aria-hidden="true">
+    <svg viewBox="0 0 32 32" fill="none">
+      <defs>
+        <linearGradient id="sweepGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#4fd1c5" stop-opacity="0"/>
+          <stop offset="45%" stop-color="#4fd1c5" stop-opacity=".22"/>
+          <stop offset="55%" stop-color="#4fd1c5" stop-opacity=".22"/>
+          <stop offset="100%" stop-color="#4fd1c5" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+      <!-- The slide: drawn on, as if being placed under the objective. -->
+      <rect class="glass" x="6.5" y="2.5" width="19" height="27" rx="3"
+            stroke="currentColor" stroke-width="1.2" opacity=".5"/>
+      <path class="frost" d="M6.5 8.5h19" stroke="currentColor" stroke-width="1.2"
+            opacity=".35" stroke-linecap="round"/>
+      <!-- Specimen: two blobs, the shape tissue actually makes. -->
+      <path class="tissue a" d="M12.4 14.6c1.9-2.6 5.6-2.4 7 .2 1.2 2.2.4 4.6-1.6 5.7-2.2 1.2-5 .4-6-1.6-.8-1.6-.6-3.1.6-4.3Z"/>
+      <path class="tissue b" d="M17.6 20.4c1.5-1.1 3.7-.5 4.3 1.2.5 1.5-.4 3-2 3.4-1.7.4-3.2-.6-3.4-2.2-.1-1 .3-1.9 1.1-2.4Z"/>
+      <!-- The one cell you clicked, drawn the way a selection is drawn. -->
+      <circle class="ring" cx="14.6" cy="17.2" r="2.5"/>
+      <circle class="nucleus" cx="14.6" cy="17.2" r="1.1"/>
+      <!-- The scan sweep. -->
+      <rect class="sweep" x="6.5" y="2.5" width="19" height="27" rx="3"/>
+    </svg>
+  </div>
+  <h2>Whole-slide annotation that learns from your corrections.</h2>
+  <p>
+    Open an SVS, NDPI or MIRAX slide in the browser. Annotate it, detect tissue,
+    fix what the detector got wrong — and those fixes train a classifier you can
+    save and run over the next hundred slides.
+  </p>
+  <p class="note">
+    Slides are read by OpenSlide compiled to WebAssembly. Nothing is uploaded;
+    a 2&nbsp;GB slide never leaves your machine.
+  </p>
+  <div class="cta">
+    <a class="btn" href="https://github.com/GlastonburyC/slidecraft">Get it on GitHub</a>
+    <a class="btn plain" href="TUTORIAL.html">Read the tutorial</a>
+  </div>
+</div>
+
+<section id="how">
+  <div class="wrap">
+    <h3>The loop</h3>
+    <p>Correcting the model and teaching it are the same action, which is the whole idea.</p>
+    <ol class="steps">
+      <li>
+        <h4>Detect tissue</h4>
+        <p>A colour rule finds fragments, keeps separate ones separate, and grows into faded tissue that connects to something confident.</p>
+      </li>
+      <li>
+        <h4>Correct it</h4>
+        <p>Select the dust, bubbles and pen marks it took for tissue and mark them. Mark the real ones too. Blank glass is sampled for you.</p>
+      </li>
+      <li>
+        <h4>Train</h4>
+        <p>A logistic regression over colour <em>and</em> local texture at two scales — because an artefact is pale and smooth, while faint tissue is pale and textured. Fits in about a second.</p>
+      </li>
+      <li>
+        <h4>Add another slide</h4>
+        <p>Labels accumulate across slides. One slide teaches the model that slide's stain; three teach it tissue.</p>
+      </li>
+      <li>
+        <h4>Run the folder</h4>
+        <p>Point it at a directory. One GeoJSON per slide, written beside it — drop the folder back in and every slide reopens with its annotations.</p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h3>What it handles</h3>
+    <div class="grid">
+      <div class="card">
+        <h4>Real formats</h4>
+        <p>SVS, NDPI, MRXS, BigTIFF, tiled TIFF, DICOM, VMS/VMU — OpenSlide's coverage, because it is OpenSlide. Drag a MIRAX folder in, data directory and all.</p>
+      </div>
+      <div class="card">
+        <h4>Annotation that holds up</h4>
+        <p>Polygon, freehand, brush and eraser with live boolean ops, resizable ROIs, your own classes, and undo that does not clone the document per stroke.</p>
+      </div>
+      <div class="card">
+        <h4>Click-to-segment cells</h4>
+        <p>SAM and SlimSAM in the browser. The encoder runs once per view; each click after that costs milliseconds, and new masks never overlap ones already there.</p>
+      </div>
+      <div class="card">
+        <h4>Honest reporting</h4>
+        <p>Held-out scores are measured on whole regions the model never saw, and are simply not shown when there is too little to measure.</p>
+      </div>
+      <div class="card">
+        <h4>GeoJSON both ways</h4>
+        <p>Level-0 slide pixels with QuPath's own fields, so annotations round-trip with QuPath instead of being a dead end.</p>
+      </div>
+      <div class="card">
+        <h4>Bring your own weights</h4>
+        <p>No gated weights are bundled. Convert your own with the included exporter; your Hugging Face token stays in your browser and goes only to huggingface.co.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h3>Run it</h3>
+    <pre><code>git clone https://github.com/GlastonburyC/slidecraft.git
+cd slidecraft
+npm install
+npm run dev</code></pre>
+    <p style="margin-top:16px">
+      Node 20+. The folder-batch feature needs Chrome or Edge, which are the
+      browsers that can write files back into a directory you choose.
+    </p>
+
+    <h3 style="margin-top:40px">Keys worth knowing</h3>
+    <table>
+      <tr><th>Key</th><th>Does</th></tr>
+      <tr><td>Space</td><td>Show / hide annotations</td></tr>
+      <tr><td>V</td><td>Select — Shift adds, Backspace deletes</td></tr>
+      <tr><td>Middle drag</td><td>Pan, with any tool active</td></tr>
+      <tr><td>B</td><td>Brush — right-click the tool for size</td></tr>
+      <tr><td>O</td><td>Draw an ROI; drag its corners to resize</td></tr>
+      <tr><td>G</td><td>Click-to-segment</td></tr>
+      <tr><td>1–9</td><td>Switch class</td></tr>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <h3>Built on</h3>
+    <p>
+      OpenSlide via WebAssembly for pixels, OpenSeadragon for the camera, deck.gl
+      for the overlay, ONNX Runtime Web for the models, and a small pile of
+      geometry. It is cross-origin isolated, because <code>SharedArrayBuffer</code>
+      is what makes reading a slide in a browser possible at all.
+    </p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>
+      Slidecraft is MIT-licensed. OpenSlide and glib are LGPL-2.1 and are loaded
+      as an unmodified WebAssembly build. No model weights and no slides are
+      included.
+    </p>
+    <p>
+      Slidecraft is a research tool. It is not a medical device and is not for
+      diagnostic use.
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>

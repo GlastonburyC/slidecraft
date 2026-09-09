@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tutorial — Slidecraft</title>
+<link rel="icon" href="favicon.svg">
+<style>
+  :root {
+    --bg: #0b0d10; --panel: #12161b; --line: #222a33; --line-2: #2e3844;
+    --text: #e6edf3; --dim: #9aa7b4; --faint: #6b7885;
+    --accent: #4fd1c5; --accent-dim: #2a6f68;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.65 var(--sans); -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 24px; }
+
+  header { border-bottom: 1px solid var(--line); background: #0e1216; }
+  .bar { display: flex; align-items: center; gap: 12px; padding: 16px 0; }
+  .bar h1 { font-size: 17px; margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+  .bar nav { margin-left: auto; display: flex; gap: 20px; font-size: 14px; }
+  .bar nav a { color: var(--dim); }
+
+  .hero { padding: 72px 0 56px; }
+  .hero h2 {
+    font-size: clamp(30px, 5vw, 46px); line-height: 1.12; margin: 0 0 20px;
+    letter-spacing: -0.025em; font-weight: 650; max-width: 18ch;
+  }
+  .hero p { font-size: 18px; color: var(--dim); max-width: 62ch; margin: 0 0 14px; }
+  .hero .note { font-size: 15px; color: var(--faint); }
+  .cta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 30px; }
+  .btn {
+    display: inline-block; padding: 10px 18px; border-radius: 7px;
+    border: 1px solid var(--accent-dim); background: #12211f; color: var(--accent);
+    font-size: 14.5px; font-weight: 500;
+  }
+  .btn:hover { background: #16302c; text-decoration: none; }
+  .btn.plain { border-color: var(--line-2); background: var(--panel); color: var(--text); }
+
+  section { padding: 52px 0; border-top: 1px solid var(--line); }
+  h3 { font-size: 22px; margin: 0 0 10px; letter-spacing: -0.015em; }
+  section > .wrap > p { color: var(--dim); max-width: 68ch; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-top: 28px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; }
+  .card h4 { margin: 0 0 7px; font-size: 15px; }
+  .card p { margin: 0; font-size: 14.5px; color: var(--dim); line-height: 1.6; }
+
+  pre {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 18px; overflow-x: auto; font: 13.5px/1.7 var(--mono); color: #d6e2ee;
+  }
+  code { font-family: var(--mono); font-size: 0.93em; }
+  p code { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
+
+  ol.steps { counter-reset: s; list-style: none; padding: 0; margin: 26px 0 0; }
+  ol.steps li {
+    counter-increment: s; position: relative; padding: 0 0 20px 46px;
+    border-left: 1px solid var(--line); margin-left: 13px;
+  }
+  ol.steps li:last-child { border-left-color: transparent; padding-bottom: 0; }
+  ol.steps li::before {
+    content: counter(s); position: absolute; left: -13px; top: -2px;
+    width: 26px; height: 26px; border-radius: 50%;
+    background: var(--panel); border: 1px solid var(--line-2); color: var(--accent);
+    font: 600 12px/24px var(--mono); text-align: center;
+  }
+  ol.steps h4 { margin: 0 0 4px; font-size: 15.5px; }
+  ol.steps p { margin: 0; color: var(--dim); font-size: 14.5px; }
+
+  .shot { margin-top: 30px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
+  .shot img { display: block; width: 100%; }
+  .shot figcaption { padding: 10px 16px; font-size: 13px; color: var(--faint); border-top: 1px solid var(--line); }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 22px; font-size: 14.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  th { color: var(--faint); font-weight: 500; font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.05em; }
+  td:first-child { font-family: var(--mono); font-size: 13px; color: var(--accent); white-space: nowrap; }
+
+  footer { border-top: 1px solid var(--line); padding: 30px 0 50px; color: var(--faint); font-size: 13.5px; }
+  footer p { margin: 0 0 8px; max-width: 70ch; }
+
+  /* Generated prose. Kept narrow: this is a document, not a dashboard. */
+  article { max-width: 760px; margin: 0 auto; padding: 44px 24px 64px; }
+  article h2 { font-size: 27px; margin: 44px 0 14px; letter-spacing: -0.02em; }
+  article h2:first-child { margin-top: 0; }
+  article h3 { font-size: 19px; margin: 32px 0 10px; }
+  article p { color: var(--dim); }
+  article li { color: var(--dim); margin-bottom: 6px; }
+  article strong { color: var(--text); font-weight: 600; }
+  article hr { border: 0; border-top: 1px solid var(--line); margin: 40px 0; }
+  article blockquote {
+    margin: 20px 0; padding: 12px 18px; border-left: 2px solid var(--accent-dim);
+    background: var(--panel); border-radius: 0 8px 8px 0;
+  }
+  article blockquote p { margin: 0; font-size: 14.5px; }
+  article kbd {
+    font: 11.5px/1 var(--mono); padding: 3px 6px; border-radius: 4px;
+    background: #1b222a; border: 1px solid var(--line-2); color: var(--text);
+  }
+  article table td:first-child { color: var(--text); font-family: var(--sans); font-size: 14.5px; white-space: normal; }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap bar">
+    <svg width="22" height="22" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+      <rect x="6.5" y="2.5" width="19" height="27" rx="3" stroke="currentColor" stroke-width="1.6" opacity=".55"/>
+      <path d="M6.5 8.5h19" stroke="currentColor" stroke-width="1.6" opacity=".35" stroke-linecap="round"/>
+      <path d="M12.4 14.6c1.9-2.6 5.6-2.4 7 .2 1.2 2.2.4 4.6-1.6 5.7-2.2 1.2-5 .4-6-1.6-.8-1.6-.6-3.1.6-4.3Z" fill="#4fd1c5" opacity=".85"/>
+      <path d="M17.6 20.4c1.5-1.1 3.7-.5 4.3 1.2.5 1.5-.4 3-2 3.4-1.7.4-3.2-.6-3.4-2.2-.1-1 .3-1.9 1.1-2.4Z" fill="#4fd1c5" opacity=".45"/>
+      <circle cx="14.6" cy="17.2" r="2.5" fill="none" stroke="#0b0d10" stroke-width="1.5" opacity=".55"/>
+      <circle cx="14.6" cy="17.2" r="1.1" fill="#0b0d10" opacity=".7"/>
+    </svg>
+    <h1>Slidecraft</h1>
+    <nav>
+      <a href="#how">How it works</a>
+      <a href="TUTORIAL.html">Tutorial</a>
+      <a href="https://github.com/OWNER/slidecraft">GitHub</a>
+    </nav>
+  </div>
+</header>
+<article>
+<p>A full pass through the tool: open a slide, annotate it, teach it what tissue looks like on your material, and run that over a folder.</p>
+<p>Nothing is uploaded. Slides are read in your browser by OpenSlide compiled to WebAssembly, so a 2 GB SVS never leaves the machine.</p>
+<hr>
+<h3>1. Open a slide</h3>
+<p>Drag a slide anywhere onto the window, or use <strong>Choose files</strong>.</p>
+<p>For <strong>MIRAX</strong>, drag the <em>folder</em> containing both <code>Foo.mrxs</code> and its <code>Foo/</code> data directory. The <code>.mrxs</code> file holds no pixels; dropping it alone cannot work, and Slidecraft will say so rather than failing quietly.</p>
+<p>Formats: <code>.svs</code> <code>.ndpi</code> <code>.mrxs</code> <code>.tif</code>/<code>.tiff</code>/<code>.btf</code> <code>.scn</code> <code>.vms</code>/<code>.vmu</code> DICOM.</p>
+<p>Drop many at once — the <strong>Slides</strong> list is filterable once there are more than a handful. Right-click a slide, or press <kbd>Backspace</kbd> on it, to remove it from the list; its annotations are kept.</p>
+<h3>2. Get around</h3>
+<table><tr><th></th><th></th></tr><tr><td>Zoom</td><td>Scroll wheel</td></tr><tr><td>Pan</td><td><kbd>H</kbd> tool, or hold the <strong>middle mouse button</strong> with any tool</td></tr><tr><td>Show/hide annotations</td><td><kbd>Space</kbd></td></tr><tr><td>Select</td><td><kbd>V</kbd> — <kbd>Shift</kbd>-click adds, <kbd>Backspace</kbd> deletes</td></tr></table>
+<p><kbd>Space</kbd> is worth the muscle memory: comparing a boundary against the tissue underneath it is the most repeated action in the app.</p>
+<h3>3. Annotate</h3>
+<p>Pick a tool from the rail. Each has a one-key shortcut, shown on the button.</p>
+<table><tr><th>Key</th><th>Tool</th><th>Notes</th></tr><tr><td><kbd>R</kbd></td><td>Rectangle</td><td></td></tr><tr><td><kbd>P</kbd></td><td>Polygon</td><td>Click vertices; <kbd>Enter</kbd> or double-click closes, <kbd>Esc</kbd> cancels</td></tr><tr><td><kbd>F</kbd></td><td>Freehand</td><td>Drag to trace</td></tr><tr><td><kbd>B</kbd></td><td>Brush</td><td>Merges with the same class underneath. <strong>Right-click the tool for size.</strong></td></tr><tr><td><kbd>E</kbd></td><td>Eraser</td><td>Subtracts from anything it touches</td></tr><tr><td><kbd>N</kbd></td><td>Point</td><td>Counting points</td></tr><tr><td><kbd>O</kbd></td><td>ROI</td><td>The working frame for patching and prediction</td></tr><tr><td><kbd>G</kbd></td><td>Click-to-segment</td><td>One click per cell</td></tr></table>
+<p><strong>Classes are yours.</strong> There are no defaults. Right-click an object to name a class, or use the Classes panel; <kbd>1</kbd>–<kbd>9</kbd> switch between the first nine.</p>
+<p><strong>ROIs resize.</strong> Select one and drag any corner or edge handle.</p>
+<h3>4. Detect tissue</h3>
+<p>In the <strong>Tissue</strong> panel, click <strong>Detect tissue</strong>.</p>
+<p>With no trained model this uses a colour rule: it scores every cell of the slide overview on saturation and darkness, splits at the valley of that histogram, then grows the detection into faded tissue that connects to something confident. Separate fragments come out as separate objects.</p>
+<p>It is genuinely good on well-stained material and it will make mistakes on yours — dust, bubbles, mounting medium, pen marks, a faded section. That is what the next step is for.</p>
+<h3>5. Teach it</h3>
+<p>The correction <em>is</em> the training example. There is no separate labelling chore.</p>
+<ol><li>Press <kbd>V</kbd>.</li><li>Click a wrong detection. <kbd>Shift</kbd>-click to add more.</li><li><strong>Mark not tissue.</strong></li><li>Do the same for correct ones with <strong>Mark tissue</strong>.</li><li><strong>Add this slide's labels.</strong></li></ol>
+<p>You need at least one region of each kind. Three or more of each gets you a held-out score instead of "no score" — Slidecraft will not report a number it cannot honestly measure.</p>
+<p>You do <strong>not</strong> need to label blank glass. Confident background is sampled automatically, because it is unambiguous and it is most of every slide.</p>
+<h4>Use more than one slide</h4>
+<p>Open another slide, correct its detection, and <strong>Add this slide's labels</strong> again. Labels accumulate — the <strong>Training set</strong> box lists every slide contributing, and <code>×</code> drops one whose labels turned out to be wrong.</p>
+<p>This matters more than it sounds. A model fitted on a single slide learns that slide's stain and scanner as much as it learns tissue, and the first slide from another batch undoes it. Two or three slides across your range of staining is usually enough.</p>
+<h4>Train</h4>
+<p>Name it something you will recognise — "Colon H&E, Aperio" — and <strong>Train and save</strong>.</p>
+<p>Training is a logistic regression over a dozen per-cell features: colour, and local variation at two scales. Texture is the point. An artefact is pale <em>and smooth</em>, because it is a smudge on glass; faint tissue is pale <em>and textured</em>. No threshold on brightness can separate those, and that is exactly what the colour rule keeps getting wrong.</p>
+<p>It fits in about a second, so retraining after another handful of corrections is not a chore.</p>
+<h3>6. Use it</h3>
+<p><strong>Use the model when detecting tissue</strong> is ticked automatically. <strong>Detect tissue</strong> now runs your classifier. The panel tells you which model produced the current result, and which features it leans on.</p>
+<p>The model is saved in the browser, so it survives a reload and applies to every future slide. Switch between saved models by clicking one.</p>
+<p>Still wrong somewhere? Mark those regions, <strong>Update this slide's labels</strong>, train again.</p>
+<h3>7. Run it over a folder</h3>
+<p>Click <strong>Run on a folder…</strong>, choose a directory, <strong>Run</strong>.</p>
+<p>Each slide gets a <code>&lt;slide&gt;.geojson</code> written next to it. Slides are opened and closed one at a time; a slide that fails is recorded and the queue continues, so it can be left alone.</p>
+<p>Drop that folder back into Slidecraft later and every slide arrives with its annotations already attached — the sidecar is matched to the slide by name. It never overwrites annotations you already saved in the app.</p>
+<blockquote><p>Needs Chrome or Edge. Safari and Firefox cannot write files back into a chosen folder; the dialog says so rather than failing silently.</p></blockquote>
+<h3>8. Segment cells</h3>
+<p>Press <kbd>G</kbd>, then <strong>Encode view</strong> in the Click-to-segment panel. The encoder runs once over what you are looking at; each click after that costs milliseconds.</p>
+<ul><li>Click a cell centre for its outline.</li><li><kbd>Shift</kbd>-click adds to the current mask, <kbd>Alt</kbd>-click cuts away.</li><li><kbd>Backspace</kbd> throws away a bad mask, or takes back the one just kept.</li><li><strong>Never overlap a cell already segmented</strong> clips each new mask against its neighbours.</li></ul>
+<p>Pick a model under <strong>Models</strong>: SlimSAM-77 is smallest and fastest, SAM ViT-B is the best quality for a bigger download. Weights are cached after the first fetch.</p>
+<blockquote><p>New cells take the <strong>active class</strong>. If that is the same class as the tissue region under them, they are drawn in the same colour and you will not see them. Pick or create a separate class — e.g. "Nuclei" — before you start.</p></blockquote>
+<h3>9. Patch an ROI</h3>
+<p>Draw an ROI with <kbd>O</kbd>, then in <strong>Patches</strong> choose a size in pixels (128×128, 256×256) and a pyramid level, and <strong>Lay grid over ROI</strong>.</p>
+<p>Patches are specified in pixels at a level, not in microns, because that is how an encoder is defined — a ViT sees a fixed pixel tensor. The panel reports the micron size each patch covers, since that is what decides whether the grid is looking at cells or at architecture, and it differs between scanners for the same pixel count.</p>
+<p><strong>Only where there is tissue</strong> clips the grid to detected tissue, so an ROI drawn loosely round a fragment does not spend the encoder on glass.</p>
+<h3>10. Export</h3>
+<p>The Annotations panel exports GeoJSON in level-0 slide pixels, with QuPath's</p>
+<p>directions.</p>
+<hr>
+<h3>Troubleshooting</h3>
+<p><strong>"Not cross-origin isolated."</strong> The server is not sending COOP/COEP headers.</p>
+<p><strong>A slide opens black or very slowly.</strong> Some slides have a shallow pyramid, so one screen tile means decoding a huge region. Slidecraft adapts its worker pool and pyramid mapping for this, but the first tile on such a slide is genuinely slow. The status bar shows tile timings.</p>
+<p><strong>Cells segment but nothing appears.</strong> The active class is probably the tissue class — see the note in step 8.</p>
+<p><strong>Tissue detection misses a faded section.</strong> Mark it as tissue and retrain; that is the case hysteresis and the classifier exist for.</p>
+</article>
+<footer>
+  <div class="wrap">
+    <p>
+      Slidecraft is MIT-licensed. OpenSlide and glib are LGPL-2.1 and are loaded
+      as an unmodified WebAssembly build. No model weights and no slides are
+      included.
+    </p>
+    <p>
+      Slidecraft is a research tool. It is not a medical device and is not for
+      diagnostic use.
+    </p>
+  </div>
+</footer>
+</body>
+</html>
