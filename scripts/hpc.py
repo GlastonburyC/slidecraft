@@ -52,6 +52,16 @@ class Job:
     env: dict[str, str] = field(default_factory=dict)
     """Extra options passed to every ssh, and to the ssh rsync uses."""
     ssh_options: list[str] = field(default_factory=list)
+    """
+    Run remote commands through a login shell.
+
+    A non-interactive ssh does not read the profile that puts a cluster's tools
+    on PATH, so `sbatch` is simply missing — the scheduler is installed under
+    something like /cm/shared/apps/slurm/current/bin and only a login shell
+    knows that. The cost is that a noisy profile prints its warnings into every
+    reply, which is why the output is parsed rather than trusted whole.
+    """
+    login_shell: bool = True
 
 
 def sbatch_script(job: Job, slide_remote: str, out_remote: str, args: list[str]) -> str:
@@ -163,7 +173,10 @@ class Runner:
 
 
 def ssh_cmd(job: Job, *rest: str) -> list[str]:
-    return ["ssh", *job.ssh_options, job.host, *rest]
+    remote = " ".join(rest)
+    if job.login_shell and remote:
+        remote = f"bash -lc {shlex.quote(remote)}"
+    return ["ssh", *job.ssh_options, job.host, *([remote] if remote else [])]
 
 
 def rsync_cmd(job: Job, *rest: str) -> list[str]:

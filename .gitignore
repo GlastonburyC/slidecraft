@@ -30,3 +30,7 @@ public/ort/
 # scripts/requirements-export.txt for how to recreate it.
 .venv/
 .venv-export/
+
+# Python bytecode, committed by accident earlier.
+__pycache__/
+*.py[cod]
