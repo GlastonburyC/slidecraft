@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateImport, isLocalModel, LOCAL_SCHEME } from "../ml/localModels";
+import { validateImport, isLocalModel, LOCAL_PREFIX } from "../ml/localModels";
 import { BUILTIN_MODELS } from "../ml/registry";
 
 const onnx = (name: string, size = 5_000_000) =>
@@ -62,8 +62,29 @@ describe("local model identity", () => {
     for (const m of BUILTIN_MODELS) expect(isLocalModel(m)).toBe(false);
   });
 
-  it("addresses imported weights under a scheme that never hits the network", () => {
-    expect(LOCAL_SCHEME).toBe("slidecraft-local:");
-    expect(`${LOCAL_SCHEME}//local-x/encoder.onnx`.startsWith("http")).toBe(false);
+  /**
+   * The Cache Storage API rejects any scheme but http and https, at `put`,
+   * with a message about schemes that says nothing about what to do. A custom
+   * `slidecraft-local:` URL therefore made every import fail the moment it
+   * tried to store the weights — so what this has to check is not that the URL
+   * looks synthetic, but that a Request can actually be built from it.
+   */
+  it("addresses imported weights with a URL Cache Storage will accept", () => {
+    const url = `${LOCAL_PREFIX}local-x/encoder.onnx`;
+    expect(() => new Request(url)).not.toThrow();
+    expect(new URL(url).protocol).toBe("https:");
+  });
+
+  /**
+   * ...and that it can never reach anyone's server. `.invalid` is reserved by
+   * RFC 2606 and guaranteed not to resolve.
+   */
+  it("points at a host that cannot resolve", () => {
+    expect(new URL(LOCAL_PREFIX).hostname.endsWith(".invalid")).toBe(true);
+  });
+
+  it("does not send a Hugging Face token to it", () => {
+    const host = new URL(`${LOCAL_PREFIX}x/encoder.onnx`).hostname;
+    expect(host === "huggingface.co" || host.endsWith(".huggingface.co")).toBe(false);
   });
 });

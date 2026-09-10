@@ -87,7 +87,7 @@ export async function fetchWeights(
     return new Uint8Array(await cached.arrayBuffer());
   }
 
-  if (url.startsWith("slidecraft-local:")) {
+  if (url.startsWith("https://local.slidecraft.invalid/") || url.startsWith("slidecraft-local:")) {
     // Imported weights only ever live in the cache; there is nothing to fetch.
     throw new Error(
       `The imported weights for "${part}" are no longer in local storage. ` +

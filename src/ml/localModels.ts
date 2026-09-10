@@ -7,7 +7,7 @@ import type { ModelFile, ModelSpec } from "./registry";
  * Licence-gated encoders (UNI, Virchow2, CONCH, GigaPath) cannot be shipped or
  * fetched from a public URL, so they are imported from disk instead. The
  * weights go into the same Cache Storage the downloaded models use, addressed
- * by a synthetic `slidecraft-local:` URL — which means the loader needs no
+ * by a synthetic URL — which means the loader needs no
  * special case: it looks the URL up in the cache and finds it there.
  *
  * Only the metadata lives in IndexedDB; the weights are far too large for it.
@@ -17,7 +17,21 @@ const DB_NAME = "slidecraft-models";
 const STORE = "specs";
 const CACHE_NAME = "slidecraft-models-v1";
 
+/**
+ * Where imported weights live, as far as the loader is concerned.
+ *
+ * It has to be https: the Cache Storage API rejects any other scheme outright,
+ * so a custom one like `slidecraft-local:` fails at `put` with a message about
+ * schemes that gives no hint of what to do. The host is under `.invalid`,
+ * which RFC 2606 reserves and guarantees will never resolve — so if this URL
+ * ever reaches the network by mistake, it cannot hit somebody's server.
+ */
+export const LOCAL_PREFIX = "https://local.slidecraft.invalid/";
+
+/** @deprecated the old, unusable scheme; kept only to recognise stale records. */
 export const LOCAL_SCHEME = "slidecraft-local:";
+
+const isLocalUrl = (url: string) => url.startsWith(LOCAL_PREFIX) || url.startsWith(LOCAL_SCHEME);
 
 export type NormalisationPreset = "imagenet" | "sam" | "none";
 
@@ -100,13 +114,13 @@ export async function importLocalModel(req: ImportRequest): Promise<ModelSpec> {
   if (problem) throw new Error(problem);
 
   const id = `local-${slug(req.name)}-${Date.now().toString(36)}`;
-  const encoderUrl = `${LOCAL_SCHEME}//${id}/encoder.onnx`;
+  const encoderUrl = `${LOCAL_PREFIX}${id}/encoder.onnx`;
   await stash(encoderUrl, req.encoder);
 
   const files: ModelFile[] = [{ part: "encoder", url: encoderUrl, bytes: req.encoder.size }];
 
   if (req.decoder) {
-    const decoderUrl = `${LOCAL_SCHEME}//${id}/decoder.onnx`;
+    const decoderUrl = `${LOCAL_PREFIX}${id}/decoder.onnx`;
     await stash(decoderUrl, req.decoder);
     files.push({ part: "decoder", url: decoderUrl, bytes: req.decoder.size });
   } else {
@@ -145,7 +159,7 @@ export async function loadLocalModels(): Promise<ModelSpec[]> {
     const cache = await caches.open(CACHE_NAME);
     const alive: ModelSpec[] = [];
     for (const s of specs) {
-      const local = s.files.filter((f) => f.url.startsWith(LOCAL_SCHEME));
+      const local = s.files.filter((f) => isLocalUrl(f.url));
       const present = await Promise.all(local.map((f) => cache.match(f.url)));
       if (present.every(Boolean)) alive.push(s);
     }
@@ -163,7 +177,7 @@ export async function removeLocalModel(id: string): Promise<void> {
     if (spec) {
       const cache = await caches.open(CACHE_NAME);
       await Promise.all(
-        spec.files.filter((f) => f.url.startsWith(LOCAL_SCHEME)).map((f) => cache.delete(f.url)),
+        spec.files.filter((f) => isLocalUrl(f.url)).map((f) => cache.delete(f.url)),
       );
     }
   } catch {
@@ -242,7 +256,7 @@ export async function importSidecarModel(req: SpatialImport): Promise<ModelSpec>
   }
 
   const id = `local-${task === "encode" ? "encoder" : "spatial"}-${slug(meta.name ?? req.onnx.name)}-${Date.now().toString(36)}`;
-  const url = `${LOCAL_SCHEME}//${id}/model.onnx`;
+  const url = `${LOCAL_PREFIX}${id}/model.onnx`;
   await stash(url, req.onnx);
 
   const spec: ModelSpec = {
