@@ -54,6 +54,8 @@ export interface Head {
   mean: Float32Array;
   scale: Float32Array;
   metrics: HeadMetrics | null;
+  /** Why there is no held-out score, when there is not one. */
+  unscored?: string;
   samples: number[];
   trainedAt: string;
   encoderId: string;
@@ -81,6 +83,16 @@ const MOMENTUM = 0.9;
  */
 const L2_BASE = 0.002;
 /**
+ * A floor, not just a ceiling.
+ *
+ * Scaling the penalty by dimensions-per-sample was aimed at the wide case, and
+ * it vanishes in the narrow one: fifty components against a hundred labels
+ * gives a coefficient near zero, so the head over-fits and saturates again —
+ * the same symptom as before, arrived at from the other direction. Fifty
+ * dimensions still need regularising when the labels number in the dozens.
+ */
+const L2_MIN = 0.01;
+/**
  * Capped as well as scaled. The penalty is applied through the same step and
  * momentum as the gradient, so a coefficient above (1 - momentum) / lr makes
  * the decay exceed the weight each iteration: the sign flips every step and
@@ -89,7 +101,7 @@ const L2_BASE = 0.002;
  */
 const L2_MAX = (1 - MOMENTUM) / LR / 2;
 const l2For = (dim: number, count: number) =>
-  Math.min(L2_MAX, L2_BASE * (dim / Math.max(1, count)));
+  Math.min(L2_MAX, Math.max(L2_MIN, L2_BASE * (dim / Math.max(1, count))));
 
 /**
  * Blocks for validation, in slide space.
@@ -331,6 +343,17 @@ export function trainHead(
   const heldOutClasses = new Set(testRows.map((i) => set.y[i]));
   if (testRows.length > 0 && heldOutClasses.size === nClasses) {
     head.metrics = score(set, testRows, head, nClasses, holdOut.size);
+  } else if (testRows.length > 0) {
+    // Held something back, but it did not contain every class — a score over a
+    // subset of classes is not comparable to one over all of them.
+    head.unscored = `the held-out region has only ${heldOutClasses.size} of ${nClasses} classes in it`;
+  } else {
+    head.unscored =
+      blocks.size < minGroups
+        ? `the labels sit in ${blocks.size} ${set.block ? "region" : "place"}${
+            blocks.size === 1 ? "" : "s"
+          }, too few to hold any back`
+        : "there was nothing to hold back";
   }
   return head;
 }

@@ -408,8 +408,8 @@ export function PredictPanel({
             </>
           ) : (
             <div className="picker-hint">
-              No held-out score: the labels sit in too few places on the slide to hold any back.
-              Annotate in a few separate spots to get one.
+              No held-out score: {head.unscored ?? "there was nothing to hold back"}. Annotate the
+              same classes in a few separate ROIs to get one.
             </div>
           )}
 
