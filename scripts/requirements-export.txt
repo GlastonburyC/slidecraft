@@ -1,0 +1,30 @@
+# Toolchain for scripts/export_deepspot.py and scripts/export_onnx.py.
+#
+# Not needed to run Slidecraft — only to convert a PyTorch checkpoint to the
+# ONNX the browser runs.
+#
+# Needs **Python 3.10+ on arm64**. DeepSpotM requires 3.10, and PyTorch no
+# longer ships macOS x86_64 wheels — so an Intel Python under Rosetta cannot
+# install torch at all, whatever the version. If your `python3` is Intel (check
+# with `python3 -c "import platform;print(platform.machine())"`), the quickest
+# fix needs no compiler and no sudo:
+#
+#   pip install uv
+#   uv python install 3.12
+#   uv venv --python 3.12 .venv-export
+#   uv pip install --python .venv-export/bin/python -r scripts/requirements-export.txt
+#   uv pip install --python .venv-export/bin/python git+https://github.com/ratschlab/DeepSpotM
+#
+# Otherwise:
+#
+#   python3 -m venv .venv-export
+#   .venv-export/bin/pip install -r scripts/requirements-export.txt
+#   .venv-export/bin/pip install git+https://github.com/ratschlab/DeepSpotM
+#
+torch>=2.2
+onnx>=1.16
+huggingface_hub>=0.24
+safetensors>=0.4
+transformers>=4.40
+timm>=1.0
+pillow>=10.0

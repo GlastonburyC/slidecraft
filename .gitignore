@@ -25,3 +25,8 @@ public/ort/
 *.vmu
 *.btf
 *.bif
+
+# Local toolchain for the export scripts. Multi-gigabyte; see
+# scripts/requirements-export.txt for how to recreate it.
+.venv/
+.venv-export/
