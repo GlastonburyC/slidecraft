@@ -21,13 +21,17 @@ import { resampleTo } from "./spatialController";
 /**
  * Patches per forward pass.
  *
- * Small on purpose. The load-time probe proves a ViT-H runs at batch 1, but
- * activations scale with the batch, and a WebGPU device that manages one patch
- * can stall or fail allocating for eight — with no error, because the failure
- * is a buffer request that never returns. Whatever is gained by batching is
- * not worth a run that appears to hang.
+ * Large, because a GPU is idle between small batches and the per-call overhead
+ * dominates. This was briefly set to 2 while chasing a stall that turned out to
+ * be a fractional patch coordinate, not an allocation failure — the reason for
+ * being timid was never real.
+ *
+ * It still halves on failure rather than assuming every device can take it: a
+ * ViT-H's activations at batch 32 are hundreds of megabytes, and the useful
+ * batch size is a property of the device, not something worth guessing at.
  */
-const BATCH = 2;
+const BATCH = 32;
+const MIN_BATCH = 1;
 
 /** A batch slower than this is reported, rather than left looking like a hang. */
 const SLOW_BATCH_MS = 45_000;
@@ -189,11 +193,12 @@ export class PredictController {
     const level = grid.level;
     const ds = this.source.meta.levels[level]?.downsample ?? 1;
     const readSide = Math.max(1, Math.round((grid.patchPx * grid.downsample) / ds));
+    let batchSize = BATCH;
 
     try {
-      for (let at = 0; at < todo.length; at += BATCH) {
+      for (let at = 0; at < todo.length; ) {
         if (this.cancelled) break;
-        const batch = todo.slice(at, at + BATCH);
+        const batch = todo.slice(at, at + batchSize);
         // Traced because a stalled run is otherwise indistinguishable at every
         // step: the console says which patch, at which level, and how long.
         console.info(
@@ -236,18 +241,38 @@ export class PredictController {
         });
 
         const batchStarted = performance.now();
-        const res = await withTimeout(
-          this.send({ type: "embed", tiles: tiles.buffer, size, count: batch.length }, [tiles.buffer]),
-          10 * 60_000,
-          `Encoding a batch of ${batch.length}`,
-        );
+        let res: Res;
+        try {
+          res = await withTimeout(
+            this.send({ type: "embed", tiles: tiles.buffer, size, count: batch.length }, [tiles.buffer]),
+            10 * 60_000,
+            `Encoding a batch of ${batch.length}`,
+          );
+        } catch (err) {
+          // Out of device memory looks like a failed allocation, so retry the
+          // same patches smaller rather than abandoning the run. Below one
+          // patch there is nothing left to try and the error is real.
+          if (batchSize > MIN_BATCH && !this.cancelled && !(err instanceof Cancelled)) {
+            batchSize = Math.max(MIN_BATCH, Math.floor(batchSize / 2));
+            console.warn(
+              `[predict] a batch of ${batch.length} failed (${
+                err instanceof Error ? err.message : String(err)
+              }); retrying at ${batchSize}`,
+            );
+            continue;
+          }
+          throw err;
+        }
         const batchMs = performance.now() - batchStarted;
-        console.info(`[predict] batch encoded in ${Math.round(batchMs)} ms`);
+        console.info(
+          `[predict] ${batch.length} patches in ${Math.round(batchMs)} ms ` +
+            `(${Math.round(batchMs / batch.length)} ms each)`,
+        );
         if (batchMs > SLOW_BATCH_MS && at === 0) {
           store.setStatus(
             "embedding",
             `The first batch took ${Math.round(batchMs / 1000)}s. At that rate this ROI needs ` +
-              `about ${Math.round((batchMs / BATCH) * grid.patches.length / 60000)} minutes.`,
+              `about ${Math.round((batchMs / batch.length) * grid.patches.length / 60000)} minutes.`,
           );
         }
         if (this.cancelled) break;
@@ -259,8 +284,9 @@ export class PredictController {
           cache.put(key, vectors.subarray(n * dim, (n + 1) * dim));
         });
 
+        at += batch.length;
         store.setEmbedded({
-          done: cached + at + batch.length,
+          done: cached + at,
           total: grid.patches.length,
           cached,
           ms: performance.now() - started,
