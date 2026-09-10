@@ -59,9 +59,23 @@ def main() -> None:
     )
     args = ap.parse_args()
 
+    # A `hf auth login` already stores a token, and refusing to use it means
+    # telling someone who has authenticated correctly that they have not. The
+    # library reads its own store here; the token is never printed or written
+    # into the output.
     token = args.token or os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
     if not token:
-        die("no token. Set HF_TOKEN=hf_... (preferred) or pass --token.")
+        try:
+            from huggingface_hub import get_token
+
+            token = get_token()
+        except Exception:  # noqa: BLE001 - an old hub version simply has no store
+            token = None
+    if not token:
+        die(
+            "no credentials. Run `hf auth login`, or set HF_TOKEN=hf_..., or pass --token.\n"
+            "You must also accept the model's terms on its Hugging Face page."
+        )
 
     try:
         import torch
