@@ -20,12 +20,21 @@ import { resampleTo } from "./spatialController";
 
 const BATCH = 8;
 
+/** Thrown into any in-flight request when the user presses stop. */
+class Cancelled extends Error {
+  constructor() {
+    super("cancelled");
+  }
+}
+
 export class PredictController {
   private worker: Worker | null = null;
   private seq = 0;
   private pending = new Map<number, { resolve: (v: Res) => void; reject: (e: Error) => void }>();
   private cancelled = false;
   private cache: EmbeddingCache | null = null;
+  /** Which spec the worker currently holds, so it is loaded exactly once. */
+  private loadedId: string | null = null;
 
   constructor(
     private readonly source: SlideSource,
@@ -66,8 +75,22 @@ export class PredictController {
     });
   }
 
+  /**
+   * Stop, and mean it.
+   *
+   * Setting a flag the loop checks between batches is not enough: the loop
+   * spends nearly all its time awaiting a batch, so a stop pressed during one
+   * did nothing visible until that batch finished — which, on a ViT-H under
+   * wasm, can be minutes. Rejecting the in-flight request unblocks the await
+   * immediately. The worker carries on with the batch it already has and its
+   * reply is discarded, because interrupting it would mean tearing down a
+   * session that took a gigabyte and a minute to build.
+   */
   cancel() {
     this.cancelled = true;
+    const err = new Cancelled();
+    this.pending.forEach((p) => p.reject(err));
+    this.pending.clear();
   }
 
   async load(spec: ModelSpec): Promise<number> {
@@ -77,6 +100,7 @@ export class PredictController {
     try {
       const res = await this.send({ type: "load", spec });
       if (res.type !== "loaded") throw new Error("unexpected reply from the encoder");
+      this.loadedId = spec.id;
       store.setBackend(res.backend);
       store.setStatus("ready");
       return res.dim;
@@ -98,6 +122,17 @@ export class PredictController {
     const store = usePredict.getState();
     this.cancelled = false;
 
+    /**
+     * The worker has to hold the session, whatever the sidecar says.
+     *
+     * This once read `spec.dim ?? await load(spec)`, which skips loading
+     * entirely for any export that declares its width — which is all of them.
+     * The encoder was never sent to the worker, and every batch failed with
+     * "No encoder is loaded" while the panel sat at zero. The declared width
+     * is worth having, but it answers a different question from "is the model
+     * in memory".
+     */
+    if (this.loadedId !== spec.id) await this.load(spec);
     const dim = spec.dim ?? (await this.load(spec));
     const slideKey = this.source.meta.name;
     const cache = await EmbeddingCache.open(
@@ -126,6 +161,9 @@ export class PredictController {
 
         const tiles = new Uint8ClampedArray(batch.length * size * size * 4);
         for (const [n, p] of batch.entries()) {
+          // Checked per patch, not per batch: reading eight regions off a slide
+          // is itself long enough for a stop to feel ignored.
+          if (this.cancelled) break;
           const rgba = await this.source.readRegion(p.x, p.y, level, readSide, readSide);
           resampleTo(rgba, readSide, readSide, tiles.subarray(n * size * size * 4, (n + 1) * size * size * 4), size);
         }
@@ -134,6 +172,7 @@ export class PredictController {
           { type: "embed", tiles: tiles.buffer, size, count: batch.length },
           [tiles.buffer],
         );
+        if (this.cancelled) break;
         if (res.type !== "embedded") throw new Error("unexpected reply from the encoder");
 
         const vectors = new Float32Array(res.vectors);
@@ -151,11 +190,17 @@ export class PredictController {
       }
       await cache.flush();
     } catch (err) {
-      store.setStatus("error", err instanceof Error ? err.message : String(err));
-      return null;
+      // A stop is not a failure, and must not be reported as one.
+      if (!(err instanceof Cancelled) && !this.cancelled) {
+        store.setStatus("error", err instanceof Error ? err.message : String(err));
+        return null;
+      }
     }
 
     if (this.cancelled) {
+      // Whatever was encoded before the stop is kept: the cache is written per
+      // batch, so resuming later re-encodes only what is genuinely missing.
+      await this.cache?.flush();
       store.setStatus("ready");
       return null;
     }

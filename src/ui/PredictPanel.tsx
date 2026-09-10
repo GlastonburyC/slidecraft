@@ -156,6 +156,15 @@ export function PredictPanel({
                   : "Embed this ROI"}
           </button>
 
+          {backend && (
+            <div className="hint">
+              Running on <b>{backend === "webgpu" ? "WebGPU" : "WASM"}</b>
+              {backend === "wasm" && (
+                <> — a ViT-H is minutes per patch here. WebGPU was unavailable.</>
+              )}
+            </div>
+          )}
+
           {embedded && (
             <div className="progress-wrap">
               <div className="progress">
@@ -164,6 +173,9 @@ export function PredictPanel({
               <div className="hint">
                 {embedded.done} of {embedded.total} patches
                 {embedded.cached > 0 && ` · ${embedded.cached} already cached`}
+                {embedded.done > embedded.cached && embedded.ms > 0 && (
+                  <> · {(embedded.ms / (embedded.done - embedded.cached)).toFixed(0)} ms each</>
+                )}
                 {status === "embedding" && (
                   <button className="mini" style={{ marginLeft: 8 }} onClick={() => controller?.cancel()}>
                     stop

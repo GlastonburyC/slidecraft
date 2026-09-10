@@ -176,3 +176,99 @@ describe("running a spatial model over a grid", () => {
     expect(useSpatial.getState().status).toBe("error");
   });
 });
+
+describe("the encoder actually reaches the worker", () => {
+  /**
+   * This regressed in the prediction controller: the load was written as
+   * `spec.dim ?? await load(spec)`, so any export declaring its embedding
+   * width — which is all of them — skipped loading entirely. The worker never
+   * received the model, every batch failed with "No encoder is loaded", and
+   * the panel sat at zero patches looking merely slow.
+   *
+   * A declared width and a loaded session are different facts. Nothing that
+   * answers the first should be allowed to stand in for the second.
+   */
+  it("loads the model even when the spec already declares its width", async () => {
+    const { PredictController } = await import("../ml/predictController");
+    const seen: string[] = [];
+
+    class Recorder implements Partial<Worker> {
+      onmessage: ((ev: MessageEvent) => void) | null = null;
+      onerror: ((ev: ErrorEvent) => void) | null = null;
+      postMessage(msg: Record<string, unknown>) {
+        seen.push(msg.type as string);
+        queueMicrotask(() => {
+          if (msg.type === "load") {
+            this.onmessage?.({
+              data: { type: "loaded", id: msg.id, backend: "wasm", dim: 2560 },
+            } as MessageEvent);
+          } else {
+            const count = msg.count as number;
+            const vectors = new Float32Array(count * 2560);
+            this.onmessage?.({
+              data: { type: "embedded", id: msg.id, vectors: vectors.buffer, dim: 2560, ms: 1 },
+            } as MessageEvent);
+          }
+        });
+      }
+      terminate() { /* nothing to release */ }
+    }
+
+    const recorder = new Recorder();
+    const c = new PredictController(source, () => recorder as unknown as Worker);
+    const grid = buildPatchGrid(region, 2, meta.mppX, { patchPx: 224, level: 1 });
+
+    // A spec that declares its width, exactly as every export does.
+    await c.embed(grid, { ...spec, id: "virchow2", dim: 2560, genes: undefined });
+
+    expect(seen[0]).toBe("load");
+    expect(seen.filter((t) => t === "embed").length).toBeGreaterThan(0);
+  }, 30000);
+});
+
+describe("stopping an embedding run", () => {
+  /**
+   * A flag checked between batches is not a stop button. The loop spends
+   * nearly all its time inside a batch, so pressing stop did nothing until
+   * that batch returned — minutes, on a ViT-H under wasm.
+   */
+  it("unblocks immediately, mid-batch, and does not report a failure", async () => {
+    const { PredictController } = await import("../ml/predictController");
+    const { usePredict } = await import("../ml/predictStore");
+
+    // A worker that accepts the load and then never answers an embed.
+    class Silent implements Partial<Worker> {
+      onmessage: ((ev: MessageEvent) => void) | null = null;
+      onerror: ((ev: ErrorEvent) => void) | null = null;
+      embeds = 0;
+      postMessage(msg: Record<string, unknown>) {
+        if (msg.type === "load") {
+          queueMicrotask(() =>
+            this.onmessage?.({
+              data: { type: "loaded", id: msg.id, backend: "wasm", dim: 2560 },
+            } as MessageEvent),
+          );
+        } else {
+          this.embeds++; // and never replies
+        }
+      }
+      terminate() { /* nothing to release */ }
+    }
+
+    const silent = new Silent();
+    const c = new PredictController(source, () => silent as unknown as Worker);
+    const grid = buildPatchGrid(region, 2, meta.mppX, { patchPx: 224, level: 1 });
+
+    const run = c.embed(grid, { ...spec, id: "virchow2", dim: 2560, genes: undefined });
+    // Let it reach the first batch and hang there.
+    await new Promise((r) => setTimeout(r, 30));
+    expect(silent.embeds).toBeGreaterThan(0);
+
+    c.cancel();
+    const result = await run;
+
+    expect(result).toBe(null);
+    // A stop is not a failure and must not be shown as one.
+    expect(usePredict.getState().status).not.toBe("error");
+  }, 30000);
+});
