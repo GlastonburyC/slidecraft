@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="Slidecraft">
+  <title>Slidecraft</title>
+  <!--
+    Self-contained on purpose. A README image is loaded as an <img>, so it gets
+    no CSS from the page and no scripting — styles and keyframes have to live
+    inside the file, and colours must read on both the light and dark themes
+    rather than inheriting currentColor.
+  -->
+  <defs>
+    <linearGradient id="sweep" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4fd1c5" stop-opacity="0"/>
+      <stop offset="45%" stop-color="#4fd1c5" stop-opacity="0.30"/>
+      <stop offset="55%" stop-color="#4fd1c5" stop-opacity="0.30"/>
+      <stop offset="100%" stop-color="#4fd1c5" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="glassClip">
+      <rect x="40" y="16" width="120" height="168" rx="18"/>
+    </clipPath>
+    <style><![CDATA[
+      /* One 7s loop with long settled pauses: a README animation that never
+         rests is something you scroll past rather than look at. */
+      .glass, .frost {
+        fill: none; stroke: #8b949e; stroke-linecap: round;
+        stroke-dasharray: 620; stroke-dashoffset: 620;
+        animation: draw 7s ease-in-out infinite;
+      }
+      .glass { stroke-width: 4; opacity: .75; }
+      .frost { stroke-width: 4; opacity: .45; animation-delay: .28s; }
+
+      .tissue { fill: #4fd1c5; opacity: 0; transform-origin: 100px 112px; }
+      .tissue-a { animation: settle 7s cubic-bezier(.22,1,.36,1) infinite; }
+      .tissue-b { animation: settle 7s cubic-bezier(.22,1,.36,1) infinite; animation-delay: .12s; }
+
+      .scan { fill: url(#sweep); opacity: 0; animation: sweep 7s ease-in-out infinite; }
+
+      .ring {
+        fill: none; stroke: #0d1117; stroke-width: 5; opacity: 0;
+        transform-origin: 87px 107px;
+        animation: pick 7s cubic-bezier(.34,1.56,.64,1) infinite;
+      }
+      .nucleus { fill: #0d1117; opacity: 0; animation: dot 7s ease infinite; }
+
+      @keyframes draw {
+        0%   { stroke-dashoffset: 620; }
+        18%  { stroke-dashoffset: 0; }
+        88%  { stroke-dashoffset: 0; opacity: .75; }
+        100% { stroke-dashoffset: 0; opacity: 0; }
+      }
+      @keyframes settle {
+        0%, 14%  { opacity: 0; transform: translateY(-8px) scale(.86); }
+        26%, 88% { opacity: .9; transform: none; }
+        100%     { opacity: 0; transform: none; }
+      }
+      @keyframes sweep {
+        0%, 26%   { opacity: 0; }
+        34%, 50%  { opacity: 1; }
+        60%, 100% { opacity: 0; }
+      }
+      @keyframes pick {
+        0%, 54%  { opacity: 0; transform: scale(2.4); }
+        66%, 88% { opacity: .7; transform: none; }
+        100%     { opacity: 0; transform: none; }
+      }
+      @keyframes dot {
+        0%, 58%  { opacity: 0; }
+        70%, 88% { opacity: .85; }
+        100%     { opacity: 0; }
+      }
+
+      /* Anyone who asked for less motion gets the finished mark, not a loop. */
+      @media (prefers-reduced-motion: reduce) {
+        .glass, .frost { animation: none; stroke-dashoffset: 0; }
+        .tissue { animation: none; opacity: .9; }
+        .ring   { animation: none; opacity: .7; }
+        .nucleus{ animation: none; opacity: .85; }
+        .scan   { animation: none; opacity: 0; }
+      }
+    ]]></style>
+  </defs>
+
+  <!-- The slide: glass, with its frosted label end. -->
+  <rect class="glass" x="40" y="16" width="120" height="168" rx="18"/>
+  <path class="frost" d="M40 54h120"/>
+
+  <!-- Specimen: the shape tissue actually makes. -->
+  <path class="tissue tissue-a"
+        d="M74 92c12-16 35-15 44 1 8 14 3 29-10 36-14 8-31 3-38-10-5-10-4-20 4-27Z"/>
+  <path class="tissue tissue-b"
+        d="M107 128c9-7 23-3 27 8 3 9-3 19-13 21-11 3-20-4-21-14-1-6 2-12 7-15Z"/>
+
+  <!-- The one cell you clicked, drawn the way a selection is. -->
+  <circle class="ring" cx="87" cy="107" r="16"/>
+  <circle class="nucleus" cx="87" cy="107" r="7"/>
+
+  <!-- Scan line, clipped to the glass. -->
+  <g clip-path="url(#glassClip)">
+    <rect class="scan" x="40" y="16" width="120" height="168"/>
+  </g>
+</svg>
