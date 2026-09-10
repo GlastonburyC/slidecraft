@@ -79,7 +79,25 @@ reattaches each result to its slide by name.
 
 ## Next
 
-### Phase 3 — The prediction loop
+### Phase 3 — The prediction loop (in progress)
+
+**Built:** patch embedding with UNI2-h and Virchow2, cached in OPFS keyed by
+slide, encoder, level and patch position, so a second pass over the same ROI
+encodes only what is new. Annotations become patch labels — whatever you draw
+is the training set, with unlabelled tissue left unlabelled rather than treated
+as background. A softmax head fits over the frozen vectors in well under a
+second, validated on whole spatial blocks, and predicts across the ROI as a
+class heatmap with a confidence threshold. Disagree, redraw, retrain.
+
+Two encoder details are not recoverable from the hub and are named explicitly
+in the exporter: UNI2-h needs its own timm configuration, and Virchow2's
+embedding is the class token concatenated with the mean of the patch tokens —
+2560-d, not the 1280-d its bare forward returns.
+
+**Left:** an active-learning queue that ranks unlabelled patches by margin and
+diversity, and persisting a trained head so it can be reused on the next slide.
+
+### Phase 3 — original scope
 
 The classifier proved the loop on one binary question. The same machinery
 generalises: patch embeddings → a light trainable head → a class heatmap over an

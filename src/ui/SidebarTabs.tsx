@@ -12,7 +12,8 @@
  * tools above it change.
  */
 
-export type SidebarTab = "slides" | "annotate" | "tissue" | "cells" | "patches" | "spatial";
+export type SidebarTab =
+  | "slides" | "annotate" | "tissue" | "cells" | "predict" | "patches" | "spatial";
 
 interface TabDef {
   id: SidebarTab;
@@ -46,6 +47,12 @@ export const SIDEBAR_TABS: TabDef[] = [
     label: "Cells",
     hint: "Click-to-segment and its models",
     path: "M10 4.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11zM10 8.6a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8z",
+  },
+  {
+    id: "predict",
+    label: "Predict",
+    hint: "Embed an ROI, train on your annotations, and correct what it gets wrong",
+    path: "M3 15.5l4.5-6 3.5 4 5.5-8M3 15.5h14",
   },
   {
     id: "spatial",

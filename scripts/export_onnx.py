@@ -42,6 +42,17 @@ def main() -> None:
     ap.add_argument("--size", type=int, default=224, help="square input size in pixels (default 224)")
     ap.add_argument("--opset", type=int, default=17)
     ap.add_argument(
+        "--preset",
+        choices=["auto", "plain", "uni2", "virchow2"],
+        default="auto",
+        help=(
+            "How to build the model and read its embedding. UNI2-h needs a "
+            "specific timm configuration, and Virchow2's embedding is a "
+            "concatenation the default forward does not produce — neither is "
+            "recoverable from the hub alone, so they are named here."
+        ),
+    )
+    ap.add_argument(
         "--token",
         default=None,
         help="HF token; prefer the HF_TOKEN environment variable so it stays out of your shell history",
@@ -60,13 +71,46 @@ def main() -> None:
 
     out = args.out or f"{args.model.split('/')[-1].lower()}.onnx"
 
-    print(f"loading {args.model} …", file=sys.stderr)
+    preset = args.preset
+    if preset == "auto":
+        name = args.model.lower()
+        preset = "uni2" if "uni2" in name else "virchow2" if "virchow2" in name else "plain"
+        if preset != "plain":
+            print(f"detected {preset} from the repo name", file=sys.stderr)
+
+    kwargs: dict = {"pretrained": True, "num_classes": 0}
+    if preset == "uni2":
+        # Straight from the model card. UNI2-h is not a stock timm config: get
+        # any of these wrong and the weights load into the wrong shape, or load
+        # silently into a subtly different model.
+        kwargs = {
+            "pretrained": True,
+            "img_size": 224,
+            "patch_size": 14,
+            "depth": 24,
+            "num_heads": 24,
+            "init_values": 1e-5,
+            "embed_dim": 1536,
+            "mlp_ratio": 2.66667 * 2,
+            "num_classes": 0,
+            "no_embed_class": True,
+            "mlp_layer": timm.layers.SwiGLUPacked,
+            "act_layer": torch.nn.SiLU,
+            "reg_tokens": 8,
+            "dynamic_img_size": True,
+        }
+    elif preset == "virchow2":
+        # Virchow2 needs its own MLP and activation "for proper init"; without
+        # them the model builds and produces numbers that are not embeddings.
+        kwargs = {
+            "pretrained": True,
+            "mlp_layer": timm.layers.SwiGLUPacked,
+            "act_layer": torch.nn.SiLU,
+        }
+
+    print(f"loading {args.model} ({preset}) …", file=sys.stderr)
     try:
-        model = timm.create_model(
-            f"hf-hub:{args.model}",
-            pretrained=True,
-            num_classes=0,  # features only: we want embeddings, not logits
-        )
+        model = timm.create_model(f"hf-hub:{args.model}", **kwargs)
     except Exception as exc:  # noqa: BLE001 - surface the hub's own message
         die(
             f"could not load {args.model}: {exc}\n"
@@ -75,9 +119,39 @@ def main() -> None:
 
     model.eval()
 
+    class Virchow2Embedding(torch.nn.Module):
+        """
+        Virchow2's embedding is a concatenation, not the forward pass.
+
+        The model returns 261 tokens: a class token, four register tokens, then
+        256 patch tokens. The published representation is the class token
+        concatenated with the mean of the patch tokens — 2560 dimensions, not
+        1280. Exporting the bare forward gives tokens that look like a valid
+        output and are not the embedding anything was benchmarked on, so the
+        construction is baked into the graph here rather than left to callers.
+        """
+
+        def __init__(self, inner):
+            super().__init__()
+            self.inner = inner
+
+        def forward(self, pixel_values):
+            tokens = self.inner(pixel_values)
+            class_token = tokens[:, 0]
+            patch_tokens = tokens[:, 5:]  # skip the four register tokens
+            return torch.cat([class_token, patch_tokens.mean(dim=1)], dim=-1)
+
+    # Kept before wrapping: resolve_data_config reads timm's pretrained_cfg,
+    # which a wrapper does not carry. Without this the normalisation quietly
+    # falls back to ImageNet defaults, which is the kind of wrong that shows up
+    # as "the encoder just is not very good".
+    base = model
+    if preset == "virchow2":
+        model = Virchow2Embedding(model).eval()
+
     # timm carries the preprocessing the weights were trained with; reading it
     # here is what keeps the app's normalisation honest rather than guessed.
-    cfg = timm.data.resolve_data_config({}, model=model)
+    cfg = timm.data.resolve_data_config({}, model=base)
     mean = [round(v * 255, 4) for v in cfg.get("mean", (0.485, 0.456, 0.406))]
     std = [round(v * 255, 4) for v in cfg.get("std", (0.229, 0.224, 0.225))]
     size = args.size or cfg.get("input_size", (3, 224, 224))[-1]
@@ -85,6 +159,11 @@ def main() -> None:
     dummy = torch.zeros(1, 3, size, size)
     with torch.no_grad():
         dim = int(model(dummy).shape[-1])
+
+    if preset == "virchow2" and dim != 2560:
+        die(f"expected a 2560-d Virchow2 embedding, got {dim}. The token layout has changed.")
+    if preset == "uni2" and dim != 1536:
+        die(f"expected a 1536-d UNI2 embedding, got {dim}. Check the timm kwargs.")
 
     print(f"exporting to {out} (input {size}x{size}, embedding dim {dim}) …", file=sys.stderr)
     torch.onnx.export(
@@ -115,6 +194,8 @@ def main() -> None:
         "mean": mean,
         "std": std,
         "normalise": "custom" if mean != [123.675, 116.28, 103.53] else "imagenet",
+        "preset": preset,
+        "task": "encode",
         "source": args.model,
     }
     sidecar = f"{out}.json"

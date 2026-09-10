@@ -14,6 +14,7 @@ import { ModelPanel } from "./ModelPanel";
 import { PatchPanel } from "./PatchPanel";
 import { ImportSpatialDialog } from "./ImportSpatialDialog";
 import { SidebarTabs, type SidebarTab } from "./SidebarTabs";
+import { PredictPanel } from "./PredictPanel";
 import { SpatialPanel } from "./SpatialPanel";
 import { Splash } from "./Splash";
 import { TissueModelPanel } from "./TissueModelPanel";
@@ -24,6 +25,8 @@ import { loadDocument, saveDocument, slideKeyOf } from "../io/persistence";
 import { getRememberAnnotations, setRememberAnnotations } from "../io/prefs";
 import { matchesSlide, parseExpressionFile } from "../io/expressionFile";
 import { loadLocalModels } from "../ml/localModels";
+import { PredictController } from "../ml/predictController";
+import { usePredict } from "../ml/predictStore";
 import { SpatialController } from "../ml/spatialController";
 import { useSpatial } from "../ml/spatialStore";
 import { fromGeoJSON, isGeoJSONFile } from "../io/geojson";
@@ -45,6 +48,7 @@ export function App() {
   const [tab, setTab] = useState<SidebarTab>("slides");
   const [remember, setRemember] = useState(getRememberAnnotations);
   const [spatial, setSpatial] = useState<SpatialController | null>(null);
+  const [predictor, setPredictor] = useState<PredictController | null>(null);
   const [importingSpatial, setImportingSpatial] = useState(false);
   const annotationItems = useAnnotations((s) => s.items);
   const annotationVersion = useAnnotations((s) => s.version);
@@ -299,11 +303,22 @@ export function App() {
     }
     const controller = new SpatialController(source);
     setSpatial(controller);
+    /**
+     * A predictor per slide. Embeddings are cached on disk per slide and
+     * encoder, so a new controller finds them again — but the in-memory
+     * vectors and the head belong to the ROI they were fitted on, and carrying
+     * either to the next slide would predict one slide's tissue from another's
+     * features.
+     */
+    const pred = new PredictController(source);
+    setPredictor(pred);
+    usePredict.getState().reset();
     useSpatial.getState().setResult(null);
     useSpatial.getState().setStatus("idle");
 
     void loadLocalModels().then((all) => {
       useSpatial.getState().setModels(all.filter((m) => m.task === "virtual-spatial"));
+      usePredict.getState().setEncoders(all.filter((m) => m.task === "encode"));
     });
 
     /**
@@ -334,7 +349,9 @@ export function App() {
 
     return () => {
       controller.destroy();
+      void pred.destroy();
       setSpatial(null);
+      setPredictor(null);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source]);
@@ -568,6 +585,9 @@ export function App() {
             />
           )}
           {tab === "patches" && source && <PatchPanel meta={source.meta} />}
+          {tab === "predict" && source && (
+            <PredictPanel meta={source.meta} controller={predictor} />
+          )}
           {tab === "spatial" && source && (
             <SpatialPanel
               meta={source.meta}

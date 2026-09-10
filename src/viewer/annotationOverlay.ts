@@ -8,6 +8,7 @@ import { useMl } from "../ml/mlStore";
 import { colourFor, currentField, robustRange } from "../ml/spatialResult";
 import { scoreSignature } from "../ml/signatures";
 import { useSpatial } from "../ml/spatialStore";
+import { usePredict } from "../ml/predictStore";
 import type { Annotation, Position, Ring } from "../annotate/types";
 import { ROI_CLASS_ID, ROI_COLOR } from "../annotate/types";
 
@@ -78,6 +79,17 @@ export class AnnotationOverlay {
     const unsubMl = useMl.subscribe((s, prev) => {
       if (s.grid !== prev.grid) this.scheduleRender();
     });
+    const unsubPredict = usePredict.subscribe((s, prev) => {
+      if (
+        s.prediction !== prev.prediction ||
+        s.shownClass !== prev.shownClass ||
+        s.opacity !== prev.opacity ||
+        s.threshold !== prev.threshold ||
+        s.visible !== prev.visible
+      ) {
+        this.scheduleRender();
+      }
+    });
     const unsubSpatial = useSpatial.subscribe((s, prev) => {
       if (
         s.result !== prev.result ||
@@ -96,6 +108,7 @@ export class AnnotationOverlay {
       this.viewer.removeHandler("resize", syncRedraw);
       unsubStore();
       unsubMl();
+      unsubPredict();
       unsubSpatial();
     };
 
@@ -335,6 +348,69 @@ export class AnnotationOverlay {
             filled: true,
             stroked: false,
             updateTriggers: { getFillColor: `${field.label}|${spatial.opacity}` },
+          }),
+        );
+      }
+    }
+
+    /**
+     * What the head thinks, one square per patch.
+     *
+     * Drawn under the annotations so the regions you are correcting stay
+     * legible on top of it, and thresholded so patches the head is unsure
+     * about are left alone rather than coloured with false confidence — an
+     * uncertain patch shown at full strength is how a heatmap becomes more
+     * persuasive than the model that made it.
+     */
+    const pred = usePredict.getState();
+    if (pred.visible && pred.prediction && state.showAnnotations) {
+      const { probs, grid, classes, classIds } = pred.prediction;
+      const n = classes.length;
+      const side = grid.patchPx * grid.downsample;
+      const alpha = Math.round(255 * pred.opacity);
+      const shown = pred.shownClass ? classes.indexOf(pred.shownClass) : -1;
+
+      const colourOfClass = (k: number): [number, number, number] => {
+        const cls = state.classes.find((c) => c.id === classIds[k]);
+        return cls ? cls.color : [150, 150, 160];
+      };
+      const palette = classes.map((_, k) => colourOfClass(k));
+
+      if (side * pxPerSlidePx > 1.5) {
+        layers.push(
+          new PolygonLayer<{ i: number }>({
+            id: `prediction-${pred.head?.trainedAt ?? "none"}-${pred.shownClass ?? "argmax"}`,
+            data: grid.patches.map((_, i) => ({ i })),
+            getPolygon: (d) => {
+              const p = grid.patches[d.i];
+              return [[
+                [p.x, p.y],
+                [p.x + side, p.y],
+                [p.x + side, p.y + side],
+                [p.x, p.y + side],
+              ]];
+            },
+            getFillColor: (d) => {
+              const base = d.i * n;
+              if (shown >= 0) {
+                // One class: opacity carries the probability, so a confident
+                // patch reads as solid and an unsure one nearly vanishes.
+                const p = probs[base + shown];
+                if (p < pred.threshold) return [0, 0, 0, 0];
+                const [r, g, b] = palette[shown];
+                return [r, g, b, Math.round(alpha * p)];
+              }
+              let best = 0;
+              for (let k = 1; k < n; k++) if (probs[base + k] > probs[base + best]) best = k;
+              if (probs[base + best] < pred.threshold) return [0, 0, 0, 0];
+              const [r, g, b] = palette[best];
+              return [r, g, b, alpha];
+            },
+            filled: true,
+            stroked: false,
+            updateTriggers: {
+              getFillColor: `${pred.shownClass}|${pred.opacity}|${pred.threshold}|${state.version}`,
+            },
           }),
         );
       }

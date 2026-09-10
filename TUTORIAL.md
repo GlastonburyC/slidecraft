@@ -193,7 +193,50 @@ The grid also leaves as coordinates rather than as image files:
 Nothing is copied out of the browser, so the patches cannot drift from the
 slide they came from.
 
-## 10. Virtual spatial transcriptomics
+## 10. Train a classifier on your own annotations
+
+The **Predict** tab is the loop the whole app is arranged around: embed once,
+then label, train, look, disagree, retrain.
+
+### Get an encoder
+
+```bash
+python scripts/export_onnx.py MahmoodLab/UNI2-h --preset uni2
+python scripts/export_onnx.py paige-ai/Virchow2 --preset virchow2
+```
+
+Both are gated: accept their terms on Hugging Face first, and `hf auth login`.
+The preset matters — UNI2-h needs a specific timm configuration, and Virchow2's
+published embedding is the class token concatenated with the mean of its patch
+tokens, which its plain forward pass does not return. Import the `.onnx` under
+**Models**.
+
+### The loop
+
+1. Draw an ROI with <kbd>O</kbd>.
+2. **Embed this ROI.** This is the only step that touches pixels, and it is
+   cached — re-embedding the same ROI is instant, and an overlapping one only
+   encodes what is new.
+3. Annotate inside it in at least two classes. There is no separate labelling
+   mode: whatever you draw is the training set.
+4. **Train and predict.** The head fits in well under a second and colours every
+   patch by class.
+5. Disagree with it — draw over what it got wrong — and **Retrain**. Because the
+   embeddings are cached, this is immediate. That is the point.
+
+**Confidence** leaves unsure patches uncoloured rather than showing them with
+certainty the head does not have. **Showing** switches between the most likely
+class and one class at a time, where opacity carries the probability.
+
+### Reading the score
+
+The held-out accuracy is measured on whole **spatial blocks** the head never
+saw. Neighbouring patches are near-copies of each other, so a random split
+reports a much better number and means much less. If there is no score, your
+labels sit in too few places on the slide to hold any back — annotate in a few
+separate spots.
+
+## 11. Virtual spatial transcriptomics
 
 The **Spatial** tab predicts gene expression from the H&E itself — no assay on
 this section. It is built around DeepSpot-M, which reads a 224 px tile at about
@@ -335,7 +378,7 @@ the result goes back to R or scanpy.
 > hypothesis to check against an assay, not a substitute for one. The panel says
 > so, and it is worth repeating to anyone you show a map to.
 
-## 11. Export
+## 12. Export
 
 The Annotations panel exports GeoJSON in level-0 slide pixels, with QuPath's
 `objectType` and `classification` fields, so it round-trips with QuPath in both
