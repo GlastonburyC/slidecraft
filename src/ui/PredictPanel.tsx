@@ -300,8 +300,9 @@ export function PredictPanel({
           <div className="model-group-head">Classes to learn</div>
           {trainable.length < 2 ? (
             <div className="hint">
-              Draw regions in at least two classes inside this ROI. Whatever you annotate is the
-              training set — there is no separate labelling step.
+              The grid on the slide is what was embedded. Nothing is predicted yet — draw regions
+              in at least <b>two</b> classes inside it, then train. Whatever you annotate is the
+              training set; there is no separate labelling step.
             </div>
           ) : (
             <div className="scroll-list scroll-list--short">

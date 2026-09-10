@@ -82,6 +82,7 @@ export class AnnotationOverlay {
     const unsubPredict = usePredict.subscribe((s, prev) => {
       if (
         s.prediction !== prev.prediction ||
+        s.grid !== prev.grid ||
         s.shownClass !== prev.shownClass ||
         s.opacity !== prev.opacity ||
         s.threshold !== prev.threshold ||
@@ -363,6 +364,45 @@ export class AnnotationOverlay {
      * persuasive than the model that made it.
      */
     const pred = usePredict.getState();
+
+    /**
+     * What has been embedded, before anything has been predicted.
+     *
+     * Embedding produces no picture of its own, so without this the slide is
+     * unchanged after a run that took minutes — leaving no way to tell a
+     * finished embed from one that silently did nothing, or to see that the
+     * grid covers the tissue you meant. Drawn as outlines, and replaced by the
+     * prediction as soon as there is one.
+     */
+    if (pred.visible && pred.grid && !pred.prediction && state.showAnnotations) {
+      const { patches, patchPx, downsample } = pred.grid;
+      const side = Math.round(patchPx * downsample);
+      if (patches.length <= 20000 && side * pxPerSlidePx > 1.5) {
+        layers.push(
+          new PolygonLayer<{ i: number }>({
+            id: "embedded-grid",
+            data: patches.map((_, i) => ({ i })),
+            getPolygon: (d) => {
+              const q = patches[d.i];
+              return [[
+                [q.x, q.y],
+                [q.x + side, q.y],
+                [q.x + side, q.y + side],
+                [q.x, q.y + side],
+              ]];
+            },
+            filled: true,
+            stroked: true,
+            getFillColor: [120, 220, 255, 26],
+            getLineColor: [120, 220, 255, 150],
+            getLineWidth: 1,
+            lineWidthUnits: "pixels",
+            updateTriggers: { getPolygon: side },
+          }),
+        );
+      }
+    }
+
     if (pred.visible && pred.prediction && state.showAnnotations) {
       const { probs, grid, classes, classIds } = pred.prediction;
       const n = classes.length;
