@@ -111,13 +111,32 @@ def test_the_script_stops_on_the_first_failure():
     assert "set -euo pipefail" in sbatch_script(_job(), "/a.svs", "/o.bin", [])
 
 
+def test_remote_commands_go_through_a_login_shell():
+    # A non-interactive ssh has no module system on PATH, so sbatch is missing
+    # entirely on clusters that install it outside /usr/bin.
+    from hpc import ssh_cmd
+
+    cmd = ssh_cmd(_job(), "sbatch /home/cg/run.sbatch")
+    assert cmd[:2] == ["ssh", "h"]
+    assert cmd[2].startswith("bash -lc ")
+    import shlex as _shlex
+
+    assert _shlex.split(cmd[2])[2] == "sbatch /home/cg/run.sbatch"
+
+
+def test_login_shell_can_be_turned_off():
+    from hpc import ssh_cmd
+
+    assert ssh_cmd(_job(login_shell=False), "true") == ["ssh", "h", "true"]
+
+
 def test_ssh_options_reach_both_ssh_and_rsync():
     # rsync spawns its own ssh, which does not inherit ours — so a shared
     # connection that works for ssh but not rsync means the copies prompt for a
     # password while everything else sails through.
     from hpc import rsync_cmd, ssh_cmd
 
-    job = _job(ssh_options=["-S", "/tmp/cm-host"])
+    job = _job(ssh_options=["-S", "/tmp/cm-host"], login_shell=False)
     assert ssh_cmd(job, "true") == ["ssh", "-S", "/tmp/cm-host", "h", "true"]
 
     cmd = rsync_cmd(job, "-a", "x", "h:/y")
@@ -127,6 +146,6 @@ def test_ssh_options_reach_both_ssh_and_rsync():
 def test_no_ssh_options_leaves_the_commands_plain():
     from hpc import rsync_cmd, ssh_cmd
 
-    job = _job()
+    job = _job(login_shell=False)
     assert ssh_cmd(job, "true") == ["ssh", "h", "true"]
     assert rsync_cmd(job, "-a", "x", "h:/y")[:3] == ["rsync", "-e", "ssh"]
