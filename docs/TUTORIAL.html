@@ -193,6 +193,21 @@
 <p>Choose <strong>This ROI</strong> or <strong>Whole slide</strong>, then <strong>Predict expression</strong>.</p>
 <p>Start with an ROI. It is quick enough to iterate on, and it is how you find out whether the model says anything sensible about your material before spending an hour on a slide. Progress shows the per-patch cost as it goes, and <strong>stop</strong> ends the run without leaving a half-finished map on screen.</p>
 <p>The grid is laid at the model's own patch size and magnification, not the Patches tab's — feeding a 40× tile to a model trained at 20× shows it half the tissue it expects, which changes the answer without failing.</p>
+<h4>All 19,338 genes: run it offline</h4>
+<p>You cannot do the whole transcriptome in a browser — a 1B-parameter encoder plus a decoder that scales with gene count is minutes per patch on WASM. So run it where the GPU is:</p>
+<pre><code>python scripts/predict_expression.py slide.svs --all --device cuda</code></pre>
+<p>That writes <code>slide.expression.bin</code> beside the slide. Drop the folder into Slidecraft and each slide opens with its own map already attached, exactly like the tissue GeoJSON sidecars.</p>
+<p>A map is tied to the slide it was computed on — the patch coordinates are that slide's level-0 pixels — so Slidecraft checks the name and refuses to draw one over a different slide rather than silently misplacing it.</p>
+<h4>Cell-type signatures instead of single genes</h4>
+<p>Per-gene prediction from H&E is noisy. Averaging a marker set buys that back: the independent part of each gene's error averages down while the shared signal does not, and "where are the T cells" is usually the real question.</p>
+<pre><code>.venv-export/bin/pip install cellxgene-census
+python scripts/signatures_from_cellxgene.py --tissue lung --top 40</code></pre>
+<p>That writes <code>signatures.json</code> plus <code>signatures.genes.txt</code> — export the model to cover exactly those genes, then import the signatures under <strong>Signatures</strong> in the Spatial tab. Each row shows how many of its genes the loaded model actually predicts; a signature scored on three of forty is a weak one.</p>
+<p>Scores are standardised per gene across the patches before averaging, so they are <strong>relative to this slide</strong>: they say where a cell type is concentrated here, not how much of it there is compared with another slide.</p>
+<h4>Which genes are enriched in an area?</h4>
+<p>Draw round something — a calcified focus, a tumour nest — with any tool, select it, and hit <strong>Which genes are enriched here?</strong> in the Spatial tab. It compares the patches inside against the rest and ranks every gene.</p>
+<p>The ranking is by <strong>AUC</strong>: the probability a random inside patch exceeds a random outside one. 0.5 is nothing, 1.0 is perfect separation. Export gives you mean in, mean out, difference, AUC, p and q.</p>
+<blockquote><p>The q-values are Benjamini-Hochberg, and they are <strong>optimistic</strong>. Neighbouring patches are near-copies of each other, so the effective sample size is well below the patch count and every test is anti-conservative. Rank by AUC; use q to filter obvious noise, not as evidence.</p></blockquote>
 <h4>Reading it</h4>
 <p>Pick a gene from the list to colour the map. The scale is viridis, clipped to the 2nd and 98th percentiles so one saturated patch — a fold, a pen mark — cannot flatten everything else to the bottom of the range.</p>
 <p><strong>Export CSV</strong> writes a row per patch with its coordinates and every gene, so the result goes back to R or scanpy.</p>

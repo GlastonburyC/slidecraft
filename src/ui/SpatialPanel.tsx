@@ -5,7 +5,12 @@ import { useMl } from "../ml/mlStore";
 import { buildPatchGrid } from "../ml/patchGrid";
 import { findModel, formatBytes, totalBytes } from "../ml/registry";
 import type { SpatialController } from "../ml/spatialController";
-import { legendStops, robustRange, geneValues, toCsv } from "../ml/spatialResult";
+import { currentField, legendStops, robustRange, toCsv } from "../ml/spatialResult";
+import { parseSignatures, scoreSignature, usableSignatures } from "../ml/signatures";
+import {
+  differentialExpression, enrichmentCsv, NotEnoughPatches, patchesInside,
+  type EnrichmentResult,
+} from "../ml/enrichment";
 import { useSpatial } from "../ml/spatialStore";
 import type { SlideMeta } from "../slide/types";
 import { SpatialMark } from "./SpatialMark";
@@ -36,14 +41,19 @@ export function SpatialPanel({
   const selection = useAnnotations((s) => s.selection);
   const classes = useAnnotations((s) => s.classes);
 
+  const spatialState = useSpatial();
   const {
-    models, activeModelId, status, error, download, progress, result,
+    models, activeModelId, status, error, download, progress, result, backend,
     gene, setGene, opacity, setOpacity, visible, setVisible, setActiveModel, setResult,
-  } = useSpatial();
+    mode, setMode, signatures, setSignatures, signatureName, setSignatureName,
+  } = spatialState;
 
   const patchPx = useMl((s) => s.patchPx);
   const [scope, setScope] = useState<"roi" | "tissue">("roi");
   const [query, setQuery] = useState("");
+  const [enrichment, setEnrichment] = useState<EnrichmentResult | null>(null);
+  const [enrichmentError, setEnrichmentError] = useState<string | null>(null);
+  const [regionName, setRegionName] = useState("");
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const picked = useMemo(() => pickRoi(items, selection), [version, selection, items]);
@@ -90,11 +100,39 @@ export function SpatialPanel({
     return q ? list.filter((g) => g.toUpperCase().includes(q)) : list;
   }, [result, spec, query]);
 
-  const range = useMemo(() => {
-    if (!result || !gene) return null;
-    const v = geneValues(result, gene);
-    return v ? robustRange(v) : null;
-  }, [result, gene]);
+  const field = useMemo(
+    () => (result ? currentField(result, spatialState, scoreSignature) : null),
+    // The whole state object is the input; React's exhaustive rule cannot see that.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [result, mode, gene, signatureName, signatures],
+  );
+  const range = useMemo(() => (field ? robustRange(field.values) : null), [field]);
+
+  const selected = useMemo(() => {
+    const chosen = [...selection].map((id) => items.get(id)).filter((a): a is NonNullable<typeof a> => !!a);
+    return chosen.filter((a) => a.geometry.type === "Polygon" || a.geometry.type === "MultiPolygon");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [version, selection, items]);
+
+  const selectedName = useMemo(() => {
+    const names = new Set(
+      selected.map((a) => classes.find((c) => c.id === a.classId)?.name ?? "unclassified"),
+    );
+    return names.size === 1 ? [...names][0] : "";
+  }, [selected, classes]);
+
+  const covered = useMemo(
+    () => (result && signatures ? usableSignatures(result, signatures) : []),
+    [result, signatures],
+  );
+
+  const loadSignatures = async (file: File) => {
+    try {
+      setSignatures(parseSignatures(JSON.parse(await file.text())));
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   return (
     <section className="section">
@@ -216,33 +254,120 @@ export function SpatialPanel({
             </dd>
             <dt>Model</dt>
             <dd>{result.modelName}</dd>
+            {backend && (
+              <>
+                <dt>Runtime</dt>
+                <dd
+                  className={backend === "wasm" ? "muted" : undefined}
+                  title={
+                    backend === "wasm"
+                      ? "WebGPU was unavailable, so this ran on WASM — tens of seconds per patch rather than seconds."
+                      : undefined
+                  }
+                >
+                  {backend === "webgpu" ? "WebGPU" : "WASM"}
+                </dd>
+              </>
+            )}
           </dl>
 
-          {result.genes.length > 8 && (
-            <input
-              className="class-edit search"
-              type="search"
-              placeholder="Find a gene…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          )}
-          <div className="scroll-list scroll-list--short">
-            {shownGenes.map((g) => (
-              <button
-                key={g}
-                className="gene-row"
-                aria-current={g === gene}
-                onClick={() => setGene(g)}
-              >
-                <span className="radio" data-on={g === gene} />
-                <span className="gene-name">{g}</span>
-              </button>
-            ))}
-            {shownGenes.length === 0 && (
-              <div className="picker-hint">Nothing matches “{query}”.</div>
-            )}
+          <div className="seg-choice">
+            <button className="seg" aria-pressed={mode === "gene"} onClick={() => setMode("gene")}>
+              Genes
+            </button>
+            <button
+              className="seg"
+              aria-pressed={mode === "signature"}
+              onClick={() => setMode("signature")}
+              title="Score a cell-type signature instead of reading one gene"
+            >
+              Signatures
+            </button>
           </div>
+
+          {mode === "gene" ? (
+            <>
+              {result.genes.length > 8 && (
+                <input
+                  className="class-edit search"
+                  type="search"
+                  placeholder="Find a gene…"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              )}
+              <div className="scroll-list scroll-list--short">
+                {shownGenes.map((g) => (
+                  <button key={g} className="gene-row" aria-current={g === gene} onClick={() => setGene(g)}>
+                    <span className="radio" data-on={g === gene} />
+                    <span className="gene-name">{g}</span>
+                  </button>
+                ))}
+                {shownGenes.length === 0 && (
+                  <div className="picker-hint">Nothing matches “{query}”.</div>
+                )}
+              </div>
+            </>
+          ) : !signatures ? (
+            <>
+              <div className="hint">
+                Average a marker set instead of reading one gene — the independent part of the
+                per-gene error averages down, and it answers where a cell type is rather than what
+                one transcript is doing.
+              </div>
+              <label className="field">
+                <span>Signatures</span>
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void loadSignatures(f);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              <div className="picker-hint">
+                Derive them from a single-cell atlas with{" "}
+                <code>scripts/signatures_from_cellxgene.py --tissue lung</code>.
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="scroll-list scroll-list--short">
+                {covered.map(({ signature, coverage }) => (
+                  <button
+                    key={signature.name}
+                    className="gene-row"
+                    aria-current={signature.name === signatureName}
+                    onClick={() => setSignatureName(signature.name)}
+                    title={`${coverage.found} of ${coverage.total} genes are predicted by this model`}
+                  >
+                    <span className="radio" data-on={signature.name === signatureName} />
+                    <span className="gene-name">{signature.name}</span>
+                    <span
+                      className="sig-coverage"
+                      data-thin={coverage.found < 8}
+                    >
+                      {coverage.found}/{coverage.total}
+                    </span>
+                  </button>
+                ))}
+                {covered.length === 0 && (
+                  <div className="picker-hint">
+                    None of these signatures share enough genes with this model. Re-export it over
+                    the genes in <code>signatures.genes.txt</code>.
+                  </div>
+                )}
+              </div>
+              <div className="picker-hint">
+                {signatures.source}
+                {covered.some((c) => c.coverage.found < 8) &&
+                  " · a signature scored on only a handful of its genes is a weak one"}
+              </div>
+              <button className="mini" onClick={() => setSignatures(null)}>use different signatures</button>
+            </>
+          )}
 
           {range && (
             <>
@@ -253,7 +378,9 @@ export function SpatialPanel({
               </div>
               <div className="legend-ends">
                 <span>{range.min.toFixed(2)}</span>
-                <span>predicted {gene}</span>
+                <span>
+                  {mode === "signature" ? "score" : "predicted"} {field?.label}
+                </span>
                 <span>{range.max.toFixed(2)}</span>
               </div>
             </>
@@ -278,27 +405,120 @@ export function SpatialPanel({
           <div className="row-actions">
             <button
               className="btn"
-              onClick={() => {
-                const url = URL.createObjectURL(
-                  new Blob([toCsv(result)], { type: "text/csv" }),
-                );
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `${result.slide.replace(/\.[^.]+$/, "")}.expression.csv`;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-                setTimeout(() => URL.revokeObjectURL(url), 1000);
-              }}
+              onClick={() =>
+                saveText(
+                  toCsv(result),
+                  `${result.slide.replace(/\.[^.]+$/, "")}.expression.csv`,
+                  "text/csv",
+                )
+              }
             >
               Export CSV
             </button>
             <button className="btn" onClick={() => setResult(null)}>Clear</button>
           </div>
 
+          <div className="ctx-sep" />
+
+          {/*
+            Which genes stand out in a region you drew. This is the question the
+            map exists to serve — the map shows one gene at a time, and this says
+            which gene to look at.
+          */}
+          <div className="model-group-head">Enrichment in a region</div>
+          {selected.length === 0 ? (
+            <div className="hint">
+              Draw round an area — brush, polygon, whatever suits — then select it to compare the
+              patches inside it against the rest.
+            </div>
+          ) : (
+            <>
+              <div className="hint">
+                {selected.length} region{selected.length === 1 ? "" : "s"} selected
+                {selectedName ? ` · ${selectedName}` : ""}
+              </div>
+              <button
+                className="btn"
+                style={{ width: "100%" }}
+                onClick={() => {
+                  setEnrichmentError(null);
+                  try {
+                    const inside = patchesInside(result, selected);
+                    setEnrichment(differentialExpression(result, inside));
+                    setRegionName(selectedName || "selection");
+                  } catch (err) {
+                    setEnrichment(null);
+                    setEnrichmentError(
+                      err instanceof NotEnoughPatches
+                        ? err.message
+                        : err instanceof Error
+                          ? err.message
+                          : String(err),
+                    );
+                  }
+                }}
+              >
+                Which genes are enriched here?
+              </button>
+            </>
+          )}
+          {enrichmentError && <div className="note warn">{enrichmentError}</div>}
+
+          {enrichment && (
+            <>
+              <div className="hint">
+                {enrichment.inside} patches inside · {enrichment.outside} outside
+              </div>
+              <div className="scroll-list scroll-list--short">
+                <div className="de-row de-head">
+                  <span>gene</span><span>AUC</span><span>diff</span><span>q</span>
+                </div>
+                {enrichment.genes.slice(0, 60).map((g) => (
+                  <button
+                    key={g.gene}
+                    className="de-row"
+                    aria-current={g.gene === gene}
+                    onClick={() => setGene(g.gene)}
+                    title="Show this gene on the slide"
+                  >
+                    <span className="gene-name">{g.gene}</span>
+                    <span className="de-auc" data-strong={g.auc > 0.7}>{g.auc.toFixed(2)}</span>
+                    <span className="de-diff">{g.diff > 0 ? "+" : ""}{g.diff.toFixed(2)}</span>
+                    <span className="de-q">{g.q < 0.001 ? "<1e-3" : g.q.toFixed(3)}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="picker-hint">
+                Ranked by AUC — how separable inside is from outside. The q-values are
+                Benjamini-Hochberg but <b>optimistic</b>: neighbouring patches are near-copies, so
+                the effective sample size is well below the patch count. Read the AUC, use q only
+                to filter noise.
+              </div>
+              <div className="row-actions">
+                <button
+                  className="btn"
+                  onClick={() =>
+                    saveText(
+                      enrichmentCsv(enrichment, regionName),
+                      `${result.slide.replace(/\.[^.]+$/, "")}.enrichment.csv`,
+                      "text/csv",
+                    )
+                  }
+                >
+                  Export CSV
+                </button>
+                <button className="btn" onClick={() => setEnrichment(null)}>Clear</button>
+              </div>
+            </>
+          )}
+
+          <div className="ctx-sep" />
           <div className="picker-hint">
             These values are <b>predicted from morphology</b>, not measured. Treat them as a
             hypothesis to check against an assay, not as one.
+            {mode === "signature" &&
+              " A signature score is also relative to this slide: it says where a cell type is" +
+                " concentrated here, not how much of it there is compared with another slide."}
           </div>
         </>
       )}
@@ -313,6 +533,17 @@ export function SpatialPanel({
 }
 
 /** Pyramid level nearest a target µm/pixel; finer wins a tie. */
+function saveText(text: string, filename: string, type: string) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function levelForMpp(meta: SlideMeta, targetMpp: number | null): number {
   if (!targetMpp || !meta.mppX) return 0;
   let best = 0;

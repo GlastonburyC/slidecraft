@@ -22,6 +22,7 @@ import type { SegmentController } from "../ml/segmentController";
 import { useAnnotations } from "../annotate/store";
 import { loadDocument, saveDocument, slideKeyOf } from "../io/persistence";
 import { getRememberAnnotations, setRememberAnnotations } from "../io/prefs";
+import { matchesSlide, parseExpressionFile } from "../io/expressionFile";
 import { loadLocalModels } from "../ml/localModels";
 import { SpatialController } from "../ml/spatialController";
 import { useSpatial } from "../ml/spatialStore";
@@ -305,10 +306,37 @@ export function App() {
       useSpatial.getState().setModels(all.filter((m) => m.task === "virtual-spatial"));
     });
 
+    /**
+     * A map computed elsewhere loads with the slide.
+     *
+     * Whole-transcriptome inference is a GPU job, so the usual path is to run
+     * it offline and drop the folder back in. Refused rather than warned about
+     * when the names disagree: expression drawn over the wrong slide is the
+     * most convincing wrong result this app could produce.
+     */
+    const sidecar = activeIdx !== null ? (slides[activeIdx]?.expression ?? null) : null;
+    if (sidecar) {
+      void sidecar.arrayBuffer().then((buf) => {
+        try {
+          const loaded = parseExpressionFile(buf);
+          if (!matchesSlide(loaded, source.meta.name)) {
+            setError(
+              `${sidecar.name} was computed on ${loaded.slide}, not ${source.meta.name}. Not loaded.`,
+            );
+            return;
+          }
+          useSpatial.getState().setResult(loaded);
+        } catch (err) {
+          setError(`Could not read ${sidecar.name}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      });
+    }
+
     return () => {
       controller.destroy();
       setSpatial(null);
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source]);
 
   // Autosave, debounced so a brush stroke does not thrash IndexedDB.

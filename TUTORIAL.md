@@ -230,6 +230,59 @@ The grid is laid at the model's own patch size and magnification, not the
 Patches tab's — feeding a 40× tile to a model trained at 20× shows it half the
 tissue it expects, which changes the answer without failing.
 
+### All 19,338 genes: run it offline
+
+You cannot do the whole transcriptome in a browser — a 1B-parameter encoder plus
+a decoder that scales with gene count is minutes per patch on WASM. So run it
+where the GPU is:
+
+```bash
+python scripts/predict_expression.py slide.svs --all --device cuda
+```
+
+That writes `slide.expression.bin` beside the slide. Drop the folder into
+Slidecraft and each slide opens with its own map already attached, exactly like
+the tissue GeoJSON sidecars.
+
+A map is tied to the slide it was computed on — the patch coordinates are that
+slide's level-0 pixels — so Slidecraft checks the name and refuses to draw one
+over a different slide rather than silently misplacing it.
+
+### Cell-type signatures instead of single genes
+
+Per-gene prediction from H&E is noisy. Averaging a marker set buys that back:
+the independent part of each gene's error averages down while the shared signal
+does not, and "where are the T cells" is usually the real question.
+
+```bash
+.venv-export/bin/pip install cellxgene-census
+python scripts/signatures_from_cellxgene.py --tissue lung --top 40
+```
+
+That writes `signatures.json` plus `signatures.genes.txt` — export the model to
+cover exactly those genes, then import the signatures under **Signatures** in
+the Spatial tab. Each row shows how many of its genes the loaded model actually
+predicts; a signature scored on three of forty is a weak one.
+
+Scores are standardised per gene across the patches before averaging, so they
+are **relative to this slide**: they say where a cell type is concentrated here,
+not how much of it there is compared with another slide.
+
+### Which genes are enriched in an area?
+
+Draw round something — a calcified focus, a tumour nest — with any tool, select
+it, and hit **Which genes are enriched here?** in the Spatial tab. It compares
+the patches inside against the rest and ranks every gene.
+
+The ranking is by **AUC**: the probability a random inside patch exceeds a
+random outside one. 0.5 is nothing, 1.0 is perfect separation. Export gives you
+mean in, mean out, difference, AUC, p and q.
+
+> The q-values are Benjamini-Hochberg, and they are **optimistic**. Neighbouring
+> patches are near-copies of each other, so the effective sample size is well
+> below the patch count and every test is anti-conservative. Rank by AUC; use q
+> to filter obvious noise, not as evidence.
+
 ### Reading it
 
 Pick a gene from the list to colour the map. The scale is viridis, clipped to

@@ -59,6 +59,13 @@ def main() -> int:
     ap.add_argument("--token", default=None,
                     help="HuggingFace token; defaults to HF_TOKEN or a hf auth login")
     ap.add_argument("--opset", type=int, default=17)
+    ap.add_argument("--fp16", action="store_true",
+                    help="Halve the file: the encoder is a 1B-parameter ViT-g, so fp32 lands "
+                         "around 4.4 GB — past ONNX's 2 GB single-file limit and past what a "
+                         "32-bit wasm heap can hold at all")
+    ap.add_argument("--backend", choices=["wasm", "webgpu"], default="webgpu",
+                    help="Execution provider the browser should prefer. WebGPU is the only one "
+                         "that makes a ViT-g tractable per patch; wasm is the safe fallback")
     args = ap.parse_args()
 
     try:
@@ -130,7 +137,12 @@ def main() -> int:
     mean = [float(v) for v in getattr(ip, "image_mean", [0.485, 0.456, 0.406])]
     std = [float(v) for v in getattr(ip, "image_std", [0.229, 0.224, 0.225])]
 
-    dummy = torch.zeros(1, 3, side, side, dtype=torch.float32)
+    if args.fp16:
+        wrapper = wrapper.half()
+        print("Exporting in fp16.")
+
+    dtype = torch.float16 if args.fp16 else torch.float32
+    dummy = torch.zeros(1, 3, side, side, dtype=dtype)
     out = pathlib.Path(args.out)
     print(f"Tracing at {side}x{side} → {out} …")
     torch.onnx.export(
@@ -163,12 +175,20 @@ def main() -> int:
         "licence": "CC-BY-NC-SA-4.0 (non-commercial)",
         "source": args.repo,
         "paper": "medRxiv 2026.06.19.26356060",
-        "backend": "wasm",
+        "backend": args.backend,
+        "precision": "fp16" if args.fp16 else "fp32",
     }
     side_path = out.with_suffix(".onnx.json")
     side_path.write_text(json.dumps(sidecar, indent=2) + "\n")
 
-    print(f"Wrote {out} and {side_path}")
+    size_gb = out.stat().st_size / 1e9
+    print(f"Wrote {out} ({size_gb:.2f} GB) and {side_path}")
+    if size_gb > 2:
+        print(
+            "\nThat is past ONNX's 2 GB single-file limit and past what a 32-bit wasm heap\n"
+            "can hold. Re-run with --fp16, or with fewer genes.",
+            file=sys.stderr,
+        )
     print("Import both in Slidecraft: Spatial → Import model…")
     print("Reminder: these weights are CC-BY-NC-SA-4.0. Non-commercial use only.")
     return 0

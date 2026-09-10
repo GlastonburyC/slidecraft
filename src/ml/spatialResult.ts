@@ -105,3 +105,34 @@ export function toCsv(result: SpatialResult): string {
   });
   return `${head}\n${rows.join("\n")}\n`;
 }
+
+
+/**
+ * The values currently being drawn, and what to call them.
+ *
+ * Both a gene and a signature reduce to one number per patch, so the overlay,
+ * the legend and the colour scale never need to know which is on screen — only
+ * this function does.
+ */
+export function currentField(
+  result: SpatialResult,
+  state: {
+    mode: "gene" | "signature";
+    gene: string | null;
+    signatureName: string | null;
+    signatures: { signatures: { name: string; genes: { gene: string; weight: number }[] }[] } | null;
+  },
+  score: (r: SpatialResult, s: { name: string; genes: { gene: string; weight: number }[] }) => Float32Array | null,
+): { values: Float32Array; label: string } | null {
+  if (state.mode === "signature" && state.signatureName && state.signatures) {
+    const sig = state.signatures.signatures.find((s) => s.name === state.signatureName);
+    if (!sig) return null;
+    const values = score(result, sig);
+    return values ? { values, label: sig.name } : null;
+  }
+  if (state.gene) {
+    const values = geneValues(result, state.gene);
+    if (values) return { values, label: state.gene };
+  }
+  return null;
+}

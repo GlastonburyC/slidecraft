@@ -24,6 +24,9 @@ const SIDECAR_PREFIX_FORMATS = new Set(["vms", "vmu"]);
 /** Annotation sidecars, in the order they are preferred. */
 const ANNOTATION_SUFFIXES = [".slidecraft.geojson", ".geojson", ".json"];
 
+/** Precomputed expression maps, likewise named after the slide. */
+const EXPRESSION_SUFFIXES = [".expression.bin", ".expr"];
+
 const extOf = (p: string) => p.slice(p.lastIndexOf(".") + 1).toLowerCase();
 const baseOf = (p: string) => p.slice(p.lastIndexOf("/") + 1);
 const dirOf = (p: string) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
@@ -140,6 +143,12 @@ export function resolveSlides(files: ResolvedFile[]): ResolvedSlide[] {
       if (hit) { annotations = hit.file; break; }
     }
 
+    let expression: File | null = null;
+    for (const suffix of EXPRESSION_SUFFIXES) {
+      const hit = byPath.get(stemPath + suffix);
+      if (hit) { expression = hit.file; break; }
+    }
+
     slides.push({
       name: baseOf(entry.path),
       entryPath: entry.path,
@@ -147,6 +156,7 @@ export function resolveSlides(files: ResolvedFile[]): ResolvedSlide[] {
       bytes: all.reduce((n, f) => n + f.file.size, 0),
       warning,
       annotations,
+      expression,
     });
   }
 
@@ -168,6 +178,7 @@ export function resolveSlides(files: ResolvedFile[]): ResolvedSlide[] {
         bytes: sorted.reduce((n, f) => n + f.file.size, 0),
         warning: null,
         annotations: null,
+        expression: null,
       });
     }
   }

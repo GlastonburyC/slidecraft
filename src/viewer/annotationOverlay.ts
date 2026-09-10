@@ -5,7 +5,8 @@ import { renderableRings } from "../annotate/geometry";
 import { handlesOf, boxOf, resizeTarget, type Handle } from "../annotate/resize";
 import { useAnnotations } from "../annotate/store";
 import { useMl } from "../ml/mlStore";
-import { colourFor, geneValues, robustRange } from "../ml/spatialResult";
+import { colourFor, currentField, robustRange } from "../ml/spatialResult";
+import { scoreSignature } from "../ml/signatures";
 import { useSpatial } from "../ml/spatialStore";
 import type { Annotation, Position, Ring } from "../annotate/types";
 import { ROI_CLASS_ID, ROI_COLOR } from "../annotate/types";
@@ -81,6 +82,9 @@ export class AnnotationOverlay {
       if (
         s.result !== prev.result ||
         s.gene !== prev.gene ||
+        s.mode !== prev.mode ||
+        s.signatureName !== prev.signatureName ||
+        s.signatures !== prev.signatures ||
         s.opacity !== prev.opacity ||
         s.visible !== prev.visible
       ) {
@@ -303,16 +307,17 @@ export class AnnotationOverlay {
      * layer you want to fade in and out against the tissue underneath.
      */
     const spatial = useSpatial.getState();
-    if (spatial.visible && spatial.result && spatial.gene) {
-      const values = geneValues(spatial.result, spatial.gene);
-      if (values) {
+    if (spatial.visible && spatial.result) {
+      const field = currentField(spatial.result, spatial, scoreSignature);
+      if (field) {
+        const values = field.values;
         const range = robustRange(values);
         const side = spatial.result.side;
         const alpha = Math.round(255 * spatial.opacity);
         const patches = spatial.result.patches;
         layers.push(
           new PolygonLayer<{ i: number }>({
-            id: `spatial-${spatial.result.createdAt}-${spatial.gene}`,
+            id: `spatial-${spatial.result.createdAt}-${field.label}`,
             data: patches.map((_, i) => ({ i })),
             getPolygon: (d) => {
               const p = patches[d.i];
@@ -329,7 +334,7 @@ export class AnnotationOverlay {
             },
             filled: true,
             stroked: false,
-            updateTriggers: { getFillColor: `${spatial.gene}|${spatial.opacity}` },
+            updateTriggers: { getFillColor: `${field.label}|${spatial.opacity}` },
           }),
         );
       }

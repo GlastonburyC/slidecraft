@@ -57,11 +57,36 @@ async function load(id: number, next: ModelSpec) {
     post({ type: "progress", id, part: p.part, received: p.received, total: p.total }),
   );
 
-  const providers = next.backend === "webgpu" ? ["webgpu", "wasm"] : ["wasm"];
-  session = await ort.InferenceSession.create(bytes, { executionProviders: providers });
+  /**
+   * Try WebGPU, then fall back — and report which one actually took.
+   *
+   * A ViT-g forward pass is a few hundred GFLOPs, which single-threaded wasm
+   * does in tens of seconds per patch; WebGPU is the difference between an ROI
+   * taking minutes and taking hours. But the fallback has to be silent-proof:
+   * a run that quietly dropped to wasm and now needs three hours must say so,
+   * because otherwise it just looks like the model is slow.
+   */
+  const wanted = next.backend === "wasm" ? ["wasm"] : ["webgpu", "wasm"];
+  let backend = "";
+  let lastError: unknown = null;
+  for (const ep of wanted) {
+    try {
+      session = await ort.InferenceSession.create(bytes, { executionProviders: [ep] });
+      backend = ep;
+      break;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  if (!session) {
+    throw new Error(
+      `Could not start ${next.name} on ${wanted.join(" or ")}: ` +
+        (lastError instanceof Error ? lastError.message : String(lastError)),
+    );
+  }
   spec = next;
   inputName = session.inputNames[0] ?? "pixel_values";
-  post({ type: "loaded", id, backend: providers[0], genes: next.genes?.length ?? 0 });
+  post({ type: "loaded", id, backend, genes: next.genes?.length ?? 0 });
 }
 
 /**

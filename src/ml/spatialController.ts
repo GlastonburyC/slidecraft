@@ -83,7 +83,8 @@ export class SpatialController {
     store.setStatus("loading");
     store.setDownload(0);
     try {
-      await this.send({ type: "load", spec });
+      const res = await this.send({ type: "load", spec });
+      if (res.type === "loaded") store.setBackend(res.backend);
       store.setStatus("ready");
     } catch (err) {
       store.setStatus("error", err instanceof Error ? err.message : String(err));

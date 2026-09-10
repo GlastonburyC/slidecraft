@@ -199,6 +199,7 @@ interface Sidecar {
   licence?: string;
   source?: string;
   backend?: "wasm" | "webgpu" | "auto";
+  precision?: "fp16" | "fp32";
 }
 
 export async function importSpatialModel(req: SpatialImport): Promise<ModelSpec> {

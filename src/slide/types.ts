@@ -74,4 +74,9 @@ export interface ResolvedSlide {
    * annotations with the slide instead of leaving them to be imported by hand.
    */
   annotations: File | null;
+  /**
+   * A precomputed expression map named after the slide, written by
+   * scripts/predict_expression.py. Same pairing as the annotation sidecar.
+   */
+  expression: File | null;
 }

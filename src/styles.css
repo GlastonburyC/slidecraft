@@ -668,3 +668,22 @@ h2.with-mark { display: flex; align-items: center; gap: 7px; }
 }
 .steps-hint li { margin-bottom: 3px; }
 .steps-hint code { font-size: 10.5px; }
+
+/* Differential expression table. */
+.de-row {
+  display: grid; grid-template-columns: 1fr 34px 44px 46px; align-items: center; gap: 6px;
+  width: 100%; padding: 3px 6px; margin-bottom: 1px; text-align: left; cursor: pointer;
+  background: transparent; border: 1px solid transparent; border-radius: 4px;
+  color: var(--text); font: 10.5px/1.5 var(--mono);
+}
+.de-row:hover { background: #232a33; }
+.de-row[aria-current="true"] { background: #14211f; border-color: var(--accent-dim); }
+.de-head {
+  color: var(--text-faint); cursor: default; letter-spacing: .04em;
+  border-bottom: 1px solid var(--border); border-radius: 0; margin-bottom: 3px;
+}
+.de-head:hover { background: transparent; }
+.de-auc, .de-diff, .de-q { text-align: right; color: var(--text-dim); }
+.de-auc[data-strong="true"] { color: var(--accent); }
+.sig-coverage { margin-left: auto; font: 9.5px/1 var(--mono); color: var(--text-faint); }
+.sig-coverage[data-thin="true"] { color: var(--warn); }
