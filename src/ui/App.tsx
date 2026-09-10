@@ -321,6 +321,23 @@ export function App() {
      */
     const pred = new PredictController(source);
     setPredictor(pred);
+
+    /**
+     * Dev-only handles on the live objects.
+     *
+     * Vite serves a fresh module instance to anything imported from the
+     * console, so `await import(...)` in devtools inspects a *different* store
+     * than the running app — which has cost real time chasing bugs that were
+     * only ever in the copy. These are the app's own instances.
+     */
+    if (import.meta.env.DEV) {
+      Object.assign(window as unknown as Record<string, unknown>, {
+        __source: source,
+        __predict: pred,
+        __store: useAnnotations,
+        __predictStore: usePredict,
+      });
+    }
     usePredict.getState().reset();
     useSpatial.getState().setResult(null);
     useSpatial.getState().setStatus("idle");
