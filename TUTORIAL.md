@@ -259,6 +259,16 @@ python scripts/predict_expression.py slide.svs --all \
 Authentication is your own SSH config, keys and agent — no password is asked
 for or stored. If `ssh cluster` works in your terminal, this works.
 
+**If your cluster wants a password**, authenticate once in your own terminal and
+share that connection, so the password stays with you:
+
+```bash
+ssh -M -S ~/.ssh/cm-cluster -o ControlPersist=8h -N -f cluster
+```
+
+then add `--ssh-option='-S ~/.ssh/cm-cluster'` to the command above. Close it
+when you are done with `ssh -S ~/.ssh/cm-cluster -O exit cluster`.
+
 Useful flags: `--remote-slide /data/slide.svs` when the slide already lives on
 cluster storage, so it is not copied; `--no-watch` to submit and walk away;
 `--account`, `--time-limit`, `--mem`, `--gres`. `HF_TOKEN` is forwarded if set,

@@ -50,6 +50,8 @@ class Job:
     name: str = "slidecraft-expr"
     modules: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
+    """Extra options passed to every ssh, and to the ssh rsync uses."""
+    ssh_options: list[str] = field(default_factory=list)
 
 
 def sbatch_script(job: Job, slide_remote: str, out_remote: str, args: list[str]) -> str:
@@ -160,6 +162,20 @@ class Runner:
         return proc.stdout or ""
 
 
+def ssh_cmd(job: Job, *rest: str) -> list[str]:
+    return ["ssh", *job.ssh_options, job.host, *rest]
+
+
+def rsync_cmd(job: Job, *rest: str) -> list[str]:
+    """
+    rsync spawns its own ssh, which does not inherit the options given to ours,
+    so they have to be handed over explicitly — otherwise the copies prompt for
+    a password while the plain ssh calls sail through a shared connection.
+    """
+    transport = " ".join(["ssh", *[shlex.quote(o) for o in job.ssh_options]])
+    return ["rsync", "-e", transport, *rest]
+
+
 def submit(
     job: Job,
     slide: Path,
@@ -174,13 +190,13 @@ def submit(
     here = Path(__file__).resolve().parent
 
     print(f"Cluster: {job.host}  partition: {job.partition}  {job.gres}")
-    r.run(["ssh", job.host, "true"], capture=False)
+    r.run(ssh_cmd(job, "true"), capture=False)
 
     if dry_run:
         home = "/home/$USER"
         print("  (dry run: assuming this remote home)")
     else:
-        home = r.run(["ssh", job.host, 'printf %s "$HOME"']).strip()
+        home = r.run(ssh_cmd(job, 'printf %s "$HOME"')).strip()
         if not home:
             raise RuntimeError(f"Could not read $HOME on {job.host}")
 
@@ -188,12 +204,12 @@ def submit(
     job.python = expand_home(job.python, home)
     remote = PurePosixPath(job.remote_dir)
 
-    r.run(["ssh", job.host, f"mkdir -p {shlex.quote(str(remote))}"])
+    r.run(ssh_cmd(job, f"mkdir -p {shlex.quote(str(remote))}"))
 
     # The script travels with the job. A cluster copy that has drifted from the
     # one here produces results that do not match this checkout, and nothing
     # says so.
-    r.run(["rsync", "-a", str(here / "predict_expression.py"), f"{job.host}:{remote}/"])
+    r.run(rsync_cmd(job, "-a", str(here / "predict_expression.py"), f"{job.host}:{remote}/"))
 
     if remote_slide:
         slide_path = expand_home(remote_slide, home)
@@ -202,7 +218,7 @@ def submit(
         # Slides are gigabytes; --partial and -z make a resumed copy cheap, and
         # rsync skips it entirely if it is already there and unchanged.
         slide_path = str(remote / slide.name)
-        r.run(["rsync", "-az", "--partial", "--info=progress2", str(slide), f"{job.host}:{remote}/"])
+        r.run(rsync_cmd(job, "-az", "--partial", "--info=progress2", str(slide), f"{job.host}:{remote}/"))
 
     out_remote = str(remote / f"{slide.stem}.expression.bin")
     script = sbatch_script(job, slide_path, out_remote, args)
@@ -219,13 +235,13 @@ def submit(
         print(f"  $ ssh {job.host} 'cat > {script_remote}' < <(the script above)")
     else:
         proc = subprocess.run(
-            ["ssh", job.host, f"cat > {shlex.quote(script_remote)}"],
+            ssh_cmd(job, f"cat > {shlex.quote(script_remote)}"),
             input=script, text=True, capture_output=True,
         )
         if proc.returncode != 0:
             raise RuntimeError(f"Could not write the batch script: {proc.stderr.strip()}")
 
-    out = r.run(["ssh", job.host, f"sbatch {shlex.quote(script_remote)}"])
+    out = r.run(ssh_cmd(job, f"sbatch {shlex.quote(script_remote)}"))
     if dry_run:
         print("\nDry run: nothing was submitted.")
         return 0
@@ -244,9 +260,11 @@ def submit(
     while True:
         time.sleep(poll)
         raw = r.run(
-            ["ssh", job.host,
-             f"sacct -j {job_id} --format=State --noheader --parsable2 2>/dev/null "
-             f"|| squeue -j {job_id} -h -o %T"],
+            ssh_cmd(
+                job,
+                f"sacct -j {job_id} --format=State --noheader --parsable2 2>/dev/null "
+                f"|| squeue -j {job_id} -h -o %T",
+            ),
             check=False,
         )
         next_state = parse_state(raw)
@@ -263,11 +281,11 @@ def submit(
 
     if state and state != "COMPLETED":
         print(f"\nJob {job_id} ended as {state}. Tail of the error log:", file=sys.stderr)
-        print(r.run(["ssh", job.host, f"tail -n 40 {remote}/{job_id}.err"], check=False), file=sys.stderr)
+        print(r.run(ssh_cmd(job, f"tail -n 40 {remote}/{job_id}.err"), check=False), file=sys.stderr)
         return 1
 
     local_out = slide.parent / f"{slide.stem}.expression.bin"
-    r.run(["rsync", "-az", "--info=progress2", f"{job.host}:{out_remote}", str(local_out)])
+    r.run(rsync_cmd(job, "-az", "--info=progress2", f"{job.host}:{out_remote}", str(local_out)))
     print(f"\nWrote {local_out}")
     print("Drop its folder into Slidecraft; it attaches to the slide by name.")
     return 0

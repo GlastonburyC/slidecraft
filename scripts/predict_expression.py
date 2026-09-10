@@ -25,6 +25,7 @@ import argparse
 import json
 import os
 import pathlib
+import shlex
 import struct
 import sys
 
@@ -89,6 +90,14 @@ def submit_to_cluster(args) -> int:
         account=args.account,
         modules=args.module,
         env=env,
+        # A value like "-S ~/.ssh/cm-host" is one argument to argparse but two
+        # to ssh, and `~` has to be expanded here because there is no shell in
+        # between to do it.
+        ssh_options=[
+            os.path.expanduser(part)
+            for opt in args.ssh_option
+            for part in shlex.split(opt)
+        ],
     )
     return submit(job, slide, forwarded,
                   remote_slide=args.remote_slide,
@@ -141,6 +150,10 @@ def main() -> int:
     hpc.add_argument("--no-watch", action="store_true",
                      help="Submit and exit rather than waiting and fetching")
     hpc.add_argument("--poll", type=int, default=30, help="Seconds between status checks")
+    hpc.add_argument("--ssh-option", action="append", default=[], metavar="OPT",
+                     help="Passed to ssh and to rsync's ssh; repeatable, and a single value may "
+                          "hold several words. Use it to reuse a connection you have already "
+                          "authenticated, e.g. --ssh-option='-S ~/.ssh/cm-host'")
     hpc.add_argument("--dry-run", action="store_true",
                      help="Print the batch script and every command, and send nothing")
 

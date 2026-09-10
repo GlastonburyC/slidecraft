@@ -109,3 +109,24 @@ def test_the_script_stops_on_the_first_failure():
     # Without this a failed model load still exits 0 and the launcher fetches
     # a file that was never written, or an older one.
     assert "set -euo pipefail" in sbatch_script(_job(), "/a.svs", "/o.bin", [])
+
+
+def test_ssh_options_reach_both_ssh_and_rsync():
+    # rsync spawns its own ssh, which does not inherit ours — so a shared
+    # connection that works for ssh but not rsync means the copies prompt for a
+    # password while everything else sails through.
+    from hpc import rsync_cmd, ssh_cmd
+
+    job = _job(ssh_options=["-S", "/tmp/cm-host"])
+    assert ssh_cmd(job, "true") == ["ssh", "-S", "/tmp/cm-host", "h", "true"]
+
+    cmd = rsync_cmd(job, "-a", "x", "h:/y")
+    assert cmd[:3] == ["rsync", "-e", "ssh -S /tmp/cm-host"]
+
+
+def test_no_ssh_options_leaves_the_commands_plain():
+    from hpc import rsync_cmd, ssh_cmd
+
+    job = _job()
+    assert ssh_cmd(job, "true") == ["ssh", "h", "true"]
+    assert rsync_cmd(job, "-a", "x", "h:/y")[:3] == ["rsync", "-e", "ssh"]

@@ -204,6 +204,9 @@
     --remote-python ~/venvs/deepspot/bin/python \
     --module cuda/12.4</code></pre>
 <p>Authentication is your own SSH config, keys and agent — no password is asked for or stored. If <code>ssh cluster</code> works in your terminal, this works.</p>
+<p><strong>If your cluster wants a password</strong>, authenticate once in your own terminal and share that connection, so the password stays with you:</p>
+<pre><code>ssh -M -S ~/.ssh/cm-cluster -o ControlPersist=8h -N -f cluster</code></pre>
+<p>then add <code>--ssh-option='-S ~/.ssh/cm-cluster'</code> to the command above. Close it when you are done with <code>ssh -S ~/.ssh/cm-cluster -O exit cluster</code>.</p>
 <p>Useful flags: <code>--remote-slide /data/slide.svs</code> when the slide already lives on cluster storage, so it is not copied; <code>--no-watch</code> to submit and walk away;</p>
 <p>exported inside the batch script rather than placed on the command line where</p>
 <p><strong>Always dry-run an unfamiliar cluster first:</strong></p>
