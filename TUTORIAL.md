@@ -244,6 +244,35 @@ That writes `slide.expression.bin` beside the slide. Drop the folder into
 Slidecraft and each slide opens with its own map already attached, exactly like
 the tissue GeoJSON sidecars.
 
+### Running it on a cluster
+
+Add `--submit` and it goes to Slurm instead: copies the script and the slide,
+submits to the queue, waits, and brings the map back.
+
+```bash
+python scripts/predict_expression.py slide.svs --all \
+    --submit cluster --partition gpuq \
+    --remote-python ~/venvs/deepspot/bin/python \
+    --module cuda/12.4
+```
+
+Authentication is your own SSH config, keys and agent — no password is asked
+for or stored. If `ssh cluster` works in your terminal, this works.
+
+Useful flags: `--remote-slide /data/slide.svs` when the slide already lives on
+cluster storage, so it is not copied; `--no-watch` to submit and walk away;
+`--account`, `--time-limit`, `--mem`, `--gres`. `HF_TOKEN` is forwarded if set,
+exported inside the batch script rather than placed on the command line where
+`ps` on a shared login node would show it.
+
+**Always dry-run an unfamiliar cluster first:**
+
+```bash
+python scripts/predict_expression.py slide.svs --all --submit cluster --dry-run
+```
+
+That prints the batch script and every command, and sends nothing.
+
 A map is tied to the slide it was computed on — the patch coordinates are that
 slide's level-0 pixels — so Slidecraft checks the name and refuses to draw one
 over a different slide rather than silently misplacing it.

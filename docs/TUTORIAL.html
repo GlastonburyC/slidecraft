@@ -197,6 +197,18 @@
 <p>You cannot do the whole transcriptome in a browser — a 1B-parameter encoder plus a decoder that scales with gene count is minutes per patch on WASM. So run it where the GPU is:</p>
 <pre><code>python scripts/predict_expression.py slide.svs --all --device cuda</code></pre>
 <p>That writes <code>slide.expression.bin</code> beside the slide. Drop the folder into Slidecraft and each slide opens with its own map already attached, exactly like the tissue GeoJSON sidecars.</p>
+<h4>Running it on a cluster</h4>
+<p>Add <code>--submit</code> and it goes to Slurm instead: copies the script and the slide, submits to the queue, waits, and brings the map back.</p>
+<pre><code>python scripts/predict_expression.py slide.svs --all \
+    --submit cluster --partition gpuq \
+    --remote-python ~/venvs/deepspot/bin/python \
+    --module cuda/12.4</code></pre>
+<p>Authentication is your own SSH config, keys and agent — no password is asked for or stored. If <code>ssh cluster</code> works in your terminal, this works.</p>
+<p>Useful flags: <code>--remote-slide /data/slide.svs</code> when the slide already lives on cluster storage, so it is not copied; <code>--no-watch</code> to submit and walk away;</p>
+<p>exported inside the batch script rather than placed on the command line where</p>
+<p><strong>Always dry-run an unfamiliar cluster first:</strong></p>
+<pre><code>python scripts/predict_expression.py slide.svs --all --submit cluster --dry-run</code></pre>
+<p>That prints the batch script and every command, and sends nothing.</p>
 <p>A map is tied to the slide it was computed on — the patch coordinates are that slide's level-0 pixels — so Slidecraft checks the name and refuses to draw one over a different slide rather than silently misplacing it.</p>
 <h4>Cell-type signatures instead of single genes</h4>
 <p>Per-gene prediction from H&E is noisy. Averaging a marker set buys that back: the independent part of each gene's error averages down while the shared signal does not, and "where are the T cells" is usually the real question.</p>

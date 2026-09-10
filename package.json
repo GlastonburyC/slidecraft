@@ -11,7 +11,8 @@
     "test:watch": "vitest",
     "verify:tissue": "vitest run --dir scripts --reporter=verbose --silent=false",
     "setup:ort": "node scripts/setup-ort.mjs",
-    "postinstall": "node scripts/setup-ort.mjs"
+    "postinstall": "node scripts/setup-ort.mjs",
+    "test:scripts": "python3 -m pytest scripts -q"
   },
   "keywords": [],
   "author": "",

@@ -23,12 +23,78 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import struct
 import sys
 
+# The launcher lives beside this file, which is also how it reaches the cluster.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+
 MAGIC = b"SCEXPR1\x00"
 DEFAULT_GENES = ["EPCAM", "PTPRC", "CD3D", "COL1A1", "MKI67", "VIM", "KRT19", "ACTA2"]
+
+
+def submit_to_cluster(args) -> int:
+    """
+    Hand this run to Slurm rather than doing it here.
+
+    The arguments that describe *what* to predict are forwarded untouched; the
+    ones that describe *where* are consumed here. Keeping that split means the
+    remote run is the same command you would have run locally, which is what
+    makes a failure on the node reproducible on your laptop.
+    """
+    from hpc import Job, submit
+
+    slide = pathlib.Path(args.slide)
+    if not args.remote_slide and not slide.exists():
+        print(f"{slide} not found. Use --remote-slide for a slide already on the cluster.",
+              file=sys.stderr)
+        return 1
+
+    forwarded: list[str] = ["--repo", args.repo,
+                            "--target-mpp", str(args.target_mpp),
+                            "--patch", str(args.patch),
+                            "--batch", str(args.batch),
+                            "--min-tissue", str(args.min_tissue),
+                            "--device", args.device]
+    if args.all:
+        forwarded.append("--all")
+    else:
+        forwarded += ["--genes", *args.genes]
+    if args.stride:
+        forwarded += ["--stride", str(args.stride)]
+    if args.fp32:
+        forwarded.append("--fp32")
+
+    env = {}
+    token = os.environ.get("HF_TOKEN")
+    if token:
+        # Forwarded so the gated weights can be fetched on the node, and
+        # exported inside the script rather than passed on the command line.
+        env["HF_TOKEN"] = token
+    else:
+        print("HF_TOKEN is not set here; the node will need its own "
+              "`hf auth login` or the weights already cached.", file=sys.stderr)
+
+    job = Job(
+        host=args.submit,
+        remote_dir=args.remote_dir,
+        partition=args.partition,
+        gres=args.gres,
+        time_limit=args.time_limit,
+        cpus=args.cpus,
+        mem=args.mem,
+        python=args.remote_python,
+        account=args.account,
+        modules=args.module,
+        env=env,
+    )
+    return submit(job, slide, forwarded,
+                  remote_slide=args.remote_slide,
+                  watch=not args.no_watch,
+                  poll=args.poll,
+                  dry_run=args.dry_run)
 
 
 def main() -> int:
@@ -49,7 +115,39 @@ def main() -> int:
                     help="Skip patches with less than this fraction of tissue")
     ap.add_argument("--fp32", action="store_true", help="Store fp32 rather than fp16")
     ap.add_argument("--out", default=None)
+
+    hpc = ap.add_argument_group(
+        "cluster",
+        "Run it on a Slurm cluster instead of here: copies what is needed, submits, "
+        "waits, and brings the map back. Authentication is your own SSH config and "
+        "agent — no password is asked for or stored.",
+    )
+    hpc.add_argument("--submit", metavar="HOST",
+                     help="SSH host or alias to submit to, e.g. a Host entry in ~/.ssh/config")
+    hpc.add_argument("--partition", default="gpuq")
+    hpc.add_argument("--gres", default="gpu:1")
+    hpc.add_argument("--time-limit", default="08:00:00")
+    hpc.add_argument("--cpus", type=int, default=8)
+    hpc.add_argument("--mem", default="64G")
+    hpc.add_argument("--account", default=None)
+    hpc.add_argument("--remote-dir", default="~/slidecraft",
+                     help="Working directory on the cluster")
+    hpc.add_argument("--remote-python", default="python",
+                     help="Interpreter on the compute node; usually a venv or conda python")
+    hpc.add_argument("--remote-slide", default=None,
+                     help="Path to the slide already on cluster storage, so it is not copied")
+    hpc.add_argument("--module", action="append", default=[], metavar="NAME",
+                     help="module load NAME on the node; repeatable")
+    hpc.add_argument("--no-watch", action="store_true",
+                     help="Submit and exit rather than waiting and fetching")
+    hpc.add_argument("--poll", type=int, default=30, help="Seconds between status checks")
+    hpc.add_argument("--dry-run", action="store_true",
+                     help="Print the batch script and every command, and send nothing")
+
     args = ap.parse_args()
+
+    if args.submit:
+        return submit_to_cluster(args)
 
     try:
         import numpy as np
