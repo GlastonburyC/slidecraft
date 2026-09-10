@@ -2,6 +2,7 @@ import type { Annotation } from "../annotate/types";
 import type { SlideSource } from "../slide/types";
 import { EmbeddingCache } from "./embeddingCache";
 import type { Res } from "./embedWorker";
+import { makeAnnotation } from "../annotate/store";
 import { predict, trainHead, type Head, type LabelledSet } from "./head";
 import { kmeans } from "./kmeans";
 import { pca } from "./pca";
@@ -32,6 +33,9 @@ import { resampleTo } from "./spatialController";
  * ViT-H's activations at batch 32 are hundreds of megabytes, and the useful
  * batch size is a property of the device, not something worth guessing at.
  */
+/** Marks the squares a clustering produced, so a rerun replaces them. */
+const CLUSTER_MODEL_ID = "cluster-grid";
+
 const BATCH = 32;
 const MIN_BATCH = 1;
 
@@ -486,7 +490,23 @@ export class PredictController {
    * ordinary training data, which is the point: the unsupervised pass seeds
    * the supervised one.
    */
-  discover(k: number, ensureClass: (name: string) => { id: string; name: string }): Prediction | null {
+  /**
+   * Discover classes instead of being told them.
+   *
+   * Each patch becomes a real annotation in its cluster's class. Not a
+   * transient overlay: a grid that fills an ROI, drawn in one colour, is
+   * indistinguishable from colouring the ROI itself — and it leaves nothing in
+   * the object list, nothing to select, and nothing to rename. As annotations
+   * they carry their class colour, appear alongside everything else, and a
+   * cluster you recognise becomes ordinary training data the moment you rename
+   * its class.
+   */
+  discover(
+    k: number,
+    ensureClass: (name: string) => { id: string; name: string },
+    apply: (added: Annotation[], removed: Annotation[]) => void,
+    existing: Annotation[],
+  ): { clusters: number; sizes: number[] } | null {
     const store = usePredict.getState();
     const { vectors, dim, grid } = store;
     if (!vectors || !grid) {
@@ -495,7 +515,6 @@ export class PredictController {
     }
 
     store.setStatus("training");
-    const started = performance.now();
 
     let scores = store.scores;
     let pcs = store.pcs;
@@ -509,24 +528,38 @@ export class PredictController {
 
     const clusters = kmeans(scores, grid.patches.length, pcs, k);
     const classes = Array.from({ length: clusters.k }, (_, i) => ensureClass(`Cluster ${i + 1}`));
+    const side = Math.round(grid.patchPx * grid.downsample);
 
-    // Expressed as a prediction so the overlay, the class colours and the
-    // object list all work on it unchanged — a cluster is simply a patch whose
-    // class is certain.
-    const probs = new Float32Array(grid.patches.length * clusters.k);
-    for (let i = 0; i < grid.patches.length; i++) probs[i * clusters.k + clusters.labels[i]] = 1;
+    const added = grid.patches.map((p, i) =>
+      makeAnnotation(
+        {
+          type: "Polygon",
+          coordinates: [[
+            [p.x, p.y],
+            [p.x + side, p.y],
+            [p.x + side, p.y + side],
+            [p.x, p.y + side],
+            [p.x, p.y],
+          ]],
+        },
+        {
+          classId: classes[clusters.labels[i]].id,
+          source: "model",
+          modelId: CLUSTER_MODEL_ID,
+          name: `${classes[clusters.labels[i]].name} · ${p.col},${p.row}`,
+        },
+      ),
+    );
 
-    const prediction: Prediction = {
-      probs,
-      grid,
-      classes: classes.map((c) => c.name),
-      classIds: classes.map((c) => c.id),
-      ms: performance.now() - started,
-    };
+    // Re-running replaces the previous clustering rather than stacking a second
+    // set of squares on the first.
+    apply(added, existing.filter((a) => a.modelId === CLUSTER_MODEL_ID && !a.locked));
+
+    // The overlay draws these as annotations now, so no prediction is kept.
     store.setHead(null);
-    store.setPrediction(prediction);
+    store.setPrediction(null);
     store.setStatus("ready");
-    return prediction;
+    return { clusters: clusters.k, sizes: clusters.sizes };
   }
 
   async destroy() {

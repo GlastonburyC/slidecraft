@@ -47,6 +47,7 @@ export function PredictPanel({
   const [patchPx, setPatchPx] = useState(224);
   const [importing, setImporting] = useState(false);
   const [k, setK] = useState(6);
+  const [discovered, setDiscovered] = useState<{ clusters: number; sizes: number[] } | null>(null);
   const [readTest, setReadTest] = useState<string | null>(null);
 
   /**
@@ -382,16 +383,35 @@ export function PredictPanel({
             className="btn"
             style={{ width: "100%" }}
             disabled={busy}
-            onClick={() =>
-              controller?.discover(k, (name) => useAnnotations.getState().ensureClass(name))
-            }
+            onClick={() => {
+              const store = useAnnotations.getState();
+              const found = controller?.discover(
+                k,
+                (name) => store.ensureClass(name),
+                (added, removed) =>
+                  useAnnotations.getState().apply({
+                    label: `Discover ${added.length} patches`,
+                    added,
+                    removed,
+                  }),
+                [...store.items.values()],
+              );
+              setDiscovered(found ?? null);
+            }}
           >
             Discover {k} classes
           </button>
+          {discovered && (
+            <div className="hint">
+              {discovered.clusters} clusters over {discovered.sizes.reduce((a, b) => a + b, 0)}{" "}
+              patches — {discovered.sizes.join(", ")}. They are objects now: select one to see
+              where it is, and rename its class in <b>Annotate</b> once you recognise it.
+            </div>
+          )}
           <div className="picker-hint">
-            Clusters the components and makes each cluster a class. Rename one in the{" "}
-            <b>Annotate</b> tab the moment you recognise it — a renamed cluster is ordinary
-            training data, so this seeds the supervised pass.
+            Each patch becomes an object in its cluster's class, so it carries that class's
+            colour and can be renamed. A renamed cluster is ordinary training data, which is how
+            this seeds the supervised pass.
           </div>
         </>
       )}
