@@ -10,11 +10,20 @@
  * NOT YET CORRECT — not wired into the app.
  *
  * On three well-separated synthetic blobs this finds seven communities with
- * modularity 0.553, where the true three-way partition scores 0.667. Local
- * moving is right (it is optimal on two disjoint cliques), and the fault is in
- * the aggregation rounds: they fail to merge the sub-communities that local
- * moving leaves behind, so the result is a local optimum that later rounds
- * never escape. Fixing that is the remaining work.
+ * modularity 0.553, where the true three-way partition scores 0.667.
+ *
+ * What has been established. Local moving is correct in isolation — optimal on
+ * two disjoint cliques. Aggregation now preserves modularity exactly (0.604
+ * before and after collapsing a three-clique partition), which it did not
+ * before: internal edges were counted twice by the accumulation and then
+ * doubled again, inflating every cohesive community's degree fourfold.
+ *
+ * What remains. On the collapsed graph, merging the parts back by blob scores
+ * 0.667 against 0.553 for singletons, and yet local moving finds no single
+ * improving move. The gain criterion and the modularity function therefore
+ * disagree about self-loops — one of them mishandles the internal weight a
+ * collapsed community carries. Resolving that is the remaining work, and it
+ * wants a careful derivation rather than another guess.
  *
  * Leiden rather than Louvain. Louvain can leave a community internally
  * disconnected: nodes assigned together that are not reachable within their
@@ -270,18 +279,20 @@ function aggregate(g: Graph, partition: Int32Array): { graph: Graph; map: Int32A
     const b = key % n;
     if (b === a) {
       /**
-       * A self-loop counts twice toward a node's degree.
+       * A self-loop already carries both ends.
        *
-       * When a community collapses to a node, its internal edges become that
-       * node's self-loop — and an undirected edge contributes to the degree
-       * from both ends. Storing it once understates the strength of exactly
-       * the communities that are most cohesive, so the modularity gain from
-       * keeping them together is undervalued and the algorithm splits things
-       * that belong together.
+       * An internal edge appears twice in the adjacency, once from each of its
+       * endpoints, and both times with a === b — so the accumulation above has
+       * counted it twice already. Doubling again inflates every cohesive
+       * community's degree fourfold, which broke the one property aggregation
+       * exists to have: that collapsing a partition leaves its modularity
+       * unchanged. Without that, every round after the first optimises a
+       * different objective, and the result is a partition worse than the one
+       * local moving found on its own.
        */
       neighbours[cursor[a]] = a;
-      weights[cursor[a]++] = 2 * w;
-      totalWeight += 2 * w;
+      weights[cursor[a]++] = w;
+      totalWeight += w;
       continue;
     }
     neighbours[cursor[a]] = b;
@@ -385,3 +396,6 @@ export function leiden(g: Graph, resolution = 1, seed = 1): Clustering {
     modularity: modularityOf(g, finalLabels, resolution),
   };
 }
+
+/** Exposed for a test that checks aggregation preserves modularity. */
+export const __aggregateForTest = aggregate;

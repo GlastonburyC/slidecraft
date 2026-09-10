@@ -3,6 +3,7 @@ import type { SlideSource } from "../slide/types";
 import { EmbeddingCache } from "./embeddingCache";
 import type { Res } from "./embedWorker";
 import { predict, trainHead, type Head, type LabelledSet } from "./head";
+import { kmeans } from "./kmeans";
 import { pca } from "./pca";
 import { patchKey, type PatchGrid } from "./patchGrid";
 import { labelPatches } from "./patchLabels";
@@ -474,6 +475,58 @@ export class PredictController {
     store.setStatus("ready");
     void perClass;
     return { head, prediction };
+  }
+
+  /**
+   * Discover classes instead of being told them.
+   *
+   * Clusters the components and turns each cluster into a real annotation
+   * class — so it gets a colour, appears in the class list, and can be renamed
+   * the moment you recognise what it picked out. A renamed cluster is then
+   * ordinary training data, which is the point: the unsupervised pass seeds
+   * the supervised one.
+   */
+  discover(k: number, ensureClass: (name: string) => { id: string; name: string }): Prediction | null {
+    const store = usePredict.getState();
+    const { vectors, dim, grid } = store;
+    if (!vectors || !grid) {
+      store.setStatus("error", "Embed an ROI first.");
+      return null;
+    }
+
+    store.setStatus("training");
+    const started = performance.now();
+
+    let scores = store.scores;
+    let pcs = store.pcs;
+    if (!scores) {
+      const wanted = Math.min(50, Math.max(2, Math.floor(grid.patches.length / 3)));
+      const result = pca(vectors, grid.patches.length, dim, wanted);
+      scores = result.scores;
+      pcs = result.k;
+      store.setScores(scores, pcs);
+    }
+
+    const clusters = kmeans(scores, grid.patches.length, pcs, k);
+    const classes = Array.from({ length: clusters.k }, (_, i) => ensureClass(`Cluster ${i + 1}`));
+
+    // Expressed as a prediction so the overlay, the class colours and the
+    // object list all work on it unchanged — a cluster is simply a patch whose
+    // class is certain.
+    const probs = new Float32Array(grid.patches.length * clusters.k);
+    for (let i = 0; i < grid.patches.length; i++) probs[i * clusters.k + clusters.labels[i]] = 1;
+
+    const prediction: Prediction = {
+      probs,
+      grid,
+      classes: classes.map((c) => c.name),
+      classIds: classes.map((c) => c.id),
+      ms: performance.now() - started,
+    };
+    store.setHead(null);
+    store.setPrediction(prediction);
+    store.setStatus("ready");
+    return prediction;
   }
 
   async destroy() {

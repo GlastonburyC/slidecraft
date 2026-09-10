@@ -46,6 +46,7 @@ export function PredictPanel({
 
   const [patchPx, setPatchPx] = useState(224);
   const [importing, setImporting] = useState(false);
+  const [k, setK] = useState(6);
   const [readTest, setReadTest] = useState<string | null>(null);
 
   /**
@@ -366,6 +367,32 @@ export function PredictPanel({
           >
             {head ? "Retrain" : "Train and predict"}
           </button>
+
+          <div className="ctx-sep" />
+          <div className="model-group-head">Or find classes without labels</div>
+          <label className="field">
+            <span>Clusters</span>
+            <select value={k} onChange={(e) => setK(Number(e.target.value))} disabled={busy}>
+              {[2, 3, 4, 5, 6, 8, 10, 12, 16].map((n) => (
+                <option key={n} value={n}>{n}</option>
+              ))}
+            </select>
+          </label>
+          <button
+            className="btn"
+            style={{ width: "100%" }}
+            disabled={busy}
+            onClick={() =>
+              controller?.discover(k, (name) => useAnnotations.getState().ensureClass(name))
+            }
+          >
+            Discover {k} classes
+          </button>
+          <div className="picker-hint">
+            Clusters the components and makes each cluster a class. Rename one in the{" "}
+            <b>Annotate</b> tab the moment you recognise it — a renamed cluster is ordinary
+            training data, so this seeds the supervised pass.
+          </div>
         </>
       )}
 
