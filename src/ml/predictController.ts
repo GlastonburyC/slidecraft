@@ -207,8 +207,11 @@ export class PredictController {
           // slide is itself long enough for a stop to feel ignored.
           if (this.cancelled) break;
           const readAt = performance.now();
+          // Rounded here too. A fractional coordinate throws inside the decoder
+          // worker as an unhandled rejection, which never settles this promise
+          // — the read does not fail, it simply never answers.
           const rgba = await withTimeout(
-            this.source.readRegion(p.x, p.y, level, readSide, readSide),
+            this.source.readRegion(Math.round(p.x), Math.round(p.y), level, readSide, readSide),
             READ_TIMEOUT_MS,
             `Reading patch ${p.index} at level ${level}, ${readSide}px, at (${p.x}, ${p.y})`,
           );

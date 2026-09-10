@@ -119,3 +119,52 @@ describe("restricting patches to tissue", () => {
     expect(grid.patches.length).toBe(0);
   });
 });
+
+describe("whole-pixel coordinates", () => {
+  /**
+   * A freehand or polygon ROI's bounding box comes from vertices in continuous
+   * slide space, so its corners are fractional. OpenSlide addresses regions
+   * with integers and converts them to BigInt: a fraction does not read the
+   * wrong pixel, it throws inside the decoder worker as an unhandled rejection
+   * that never settles the caller's promise. The read never answers, and the
+   * run looks like a hang with no error anywhere.
+   */
+  it("keeps every patch on an integer coordinate from a fractional region", () => {
+    const grid = buildPatchGrid(
+      { x: 51225.71777522944, y: 5314.339, width: 2000.77, height: 1500.25 },
+      1,
+      0.25,
+      { patchPx: 224 },
+    );
+    expect(grid.patches.length).toBeGreaterThan(0);
+    for (const p of grid.patches) {
+      expect(Number.isInteger(p.x)).toBe(true);
+      expect(Number.isInteger(p.y)).toBe(true);
+      expect(Number.isInteger(p.size)).toBe(true);
+    }
+  });
+
+  /** A level's downsample is rarely an exact power of two. */
+  it("keeps them integral when the downsample is fractional", () => {
+    const grid = buildPatchGrid(
+      { x: 100.5, y: 200.5, width: 40000, height: 40000 },
+      16.004032258064516,
+      0.5,
+      { patchPx: 224, level: 2 },
+    );
+    expect(grid.patches.length).toBeGreaterThan(0);
+    for (const p of grid.patches) {
+      expect(Number.isInteger(p.x)).toBe(true);
+      expect(Number.isInteger(p.y)).toBe(true);
+      expect(Number.isInteger(p.size)).toBe(true);
+    }
+  });
+
+  it("still starts at the region it was given, to the nearest pixel", () => {
+    const grid = buildPatchGrid({ x: 999.6, y: 500.4, width: 1000, height: 1000 }, 1, null, {
+      patchPx: 224,
+    });
+    expect(grid.patches[0].x).toBe(1000);
+    expect(grid.patches[0].y).toBe(500);
+  });
+});

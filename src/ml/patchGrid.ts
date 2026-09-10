@@ -74,9 +74,22 @@ export function buildPatchGrid(
   const stridePx = Math.max(1, Math.round(opts.stridePx ?? patchPx));
   const level = opts.level ?? 0;
 
-  // One patch spans this many level-0 pixels.
-  const size = patchPx * downsample;
-  const step = stridePx * downsample;
+  /**
+   * Everything below is in whole level-0 pixels.
+   *
+   * OpenSlide addresses regions with integers and converts them to BigInt, so
+   * a fractional coordinate does not read the wrong pixel — it throws inside
+   * the decoder worker, as an unhandled rejection that never settles the
+   * caller's promise. The read simply never answers.
+   *
+   * Fractions arrive easily: a freehand or polygon ROI's bounding box comes
+   * from vertices in continuous slide space, and a pyramid level's downsample
+   * is rarely exactly a power of two.
+   */
+  const size = Math.max(1, Math.round(patchPx * downsample));
+  const step = Math.max(1, Math.round(stridePx * downsample));
+  const originX = Math.round(region.x);
+  const originY = Math.round(region.y);
 
   const cols = Math.max(0, Math.floor((region.width - size) / step) + 1);
   const rows = Math.max(0, Math.floor((region.height - size) / step) + 1);
@@ -87,8 +100,8 @@ export function buildPatchGrid(
 
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
-      const x = region.x + col * step;
-      const y = region.y + row * step;
+      const x = originX + col * step;
+      const y = originY + row * step;
 
       if (opts.bounds) {
         const b = opts.bounds;

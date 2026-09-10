@@ -198,7 +198,11 @@ export class SpatialController {
     const packed = new Uint8ClampedArray(patches.length * size * size * 4);
 
     for (const [n, p] of patches.entries()) {
-      const rgba = await this.source.readRegion(p.x, p.y, level, readSide, readSide);
+      // Whole pixels only: OpenSlide converts coordinates to BigInt, and a
+      // fraction throws inside the worker rather than returning an error.
+      const rgba = await this.source.readRegion(
+        Math.round(p.x), Math.round(p.y), level, readSide, readSide,
+      );
       const out = packed.subarray(n * size * size * 4, (n + 1) * size * size * 4);
       resampleTo(rgba, readSide, readSide, out, size);
     }
