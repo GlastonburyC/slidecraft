@@ -7,7 +7,7 @@
  * of the repository while still letting you register them yourself.
  */
 
-export type ModelTask = "prompt-segment" | "encode" | "segment";
+export type ModelTask = "prompt-segment" | "encode" | "segment" | "virtual-spatial";
 
 export interface ModelFile {
   /** Logical part name, e.g. "encoder" / "decoder". */
@@ -40,6 +40,12 @@ export interface ModelSpec {
   backend: "wasm" | "webgpu" | "auto";
   /** Embedding dimensionality, for models used as feature extractors. */
   dim?: number;
+  /**
+   * Genes a virtual-spatial model predicts, in the order its output returns
+   * them. Baked into the export, because the graph decides what it emits and
+   * the app must not guess a mapping from index to gene.
+   */
+  genes?: string[];
 }
 
 const HF = "https://huggingface.co";

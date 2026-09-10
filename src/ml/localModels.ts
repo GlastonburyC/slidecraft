@@ -172,3 +172,76 @@ export async function removeLocalModel(id: string): Promise<void> {
 }
 
 export const isLocalModel = (m: ModelSpec) => m.id.startsWith("local-");
+
+
+/**
+ * Import a virtual-spatial model: the ONNX graph plus its sidecar.
+ *
+ * Everything that decides whether a prediction means anything — the gene order,
+ * the normalisation, the magnification the model was trained at — comes from
+ * the sidecar the exporter wrote, not from anything typed here. A wrong mean or
+ * a shifted gene list does not fail; it returns confident numbers about the
+ * wrong thing, so the export is the only authority on them.
+ */
+export interface SpatialImport {
+  onnx: File;
+  sidecar: File;
+}
+
+interface Sidecar {
+  name?: string;
+  blurb?: string;
+  inputSize?: number;
+  mean?: [number, number, number];
+  std?: [number, number, number];
+  targetMpp?: number | null;
+  genes?: string[];
+  licence?: string;
+  source?: string;
+  backend?: "wasm" | "webgpu" | "auto";
+}
+
+export async function importSpatialModel(req: SpatialImport): Promise<ModelSpec> {
+  if (!req.onnx.name.toLowerCase().endsWith(".onnx")) {
+    throw new Error("The model file must be a .onnx graph.");
+  }
+
+  let meta: Sidecar;
+  try {
+    meta = JSON.parse(await req.sidecar.text()) as Sidecar;
+  } catch (err) {
+    throw new Error(
+      `Could not read ${req.sidecar.name}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  if (!meta.genes?.length) {
+    throw new Error(
+      "The sidecar lists no genes. Without them a prediction is a row of numbers with " +
+        "nothing to name them — re-export with scripts/export_deepspot.py.",
+    );
+  }
+  if (!meta.inputSize) throw new Error("The sidecar does not say what input size the model takes.");
+
+  const id = `local-spatial-${slug(meta.name ?? req.onnx.name)}-${Date.now().toString(36)}`;
+  const url = `${LOCAL_SCHEME}//${id}/model.onnx`;
+  await stash(url, req.onnx);
+
+  const spec: ModelSpec = {
+    id,
+    name: meta.name?.trim() || req.onnx.name.replace(/\.onnx$/i, ""),
+    task: "virtual-spatial",
+    blurb: meta.blurb?.trim() || `Imported from ${req.onnx.name}.`,
+    files: [{ part: "model", url, bytes: req.onnx.size }],
+    inputSize: meta.inputSize,
+    mean: meta.mean ?? [0.485 * 255, 0.456 * 255, 0.406 * 255],
+    std: meta.std ?? [0.229 * 255, 0.224 * 255, 0.225 * 255],
+    targetMpp: meta.targetMpp ?? null,
+    genes: meta.genes,
+    licence: meta.licence?.trim() || "Supplied by you — check your own licence terms.",
+    backend: meta.backend ?? "wasm",
+  };
+
+  await (await db()).put(STORE, spec);
+  return spec;
+}

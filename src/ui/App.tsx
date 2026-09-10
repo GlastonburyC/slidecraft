@@ -12,7 +12,9 @@ import { AnnotationMenus } from "./AnnotationMenus";
 import { activeModel, TISSUE_CLASS } from "../ml/tissueTraining";
 import { ModelPanel } from "./ModelPanel";
 import { PatchPanel } from "./PatchPanel";
+import { ImportSpatialDialog } from "./ImportSpatialDialog";
 import { SidebarTabs, type SidebarTab } from "./SidebarTabs";
+import { SpatialPanel } from "./SpatialPanel";
 import { Splash } from "./Splash";
 import { TissueModelPanel } from "./TissueModelPanel";
 import { SegmentPanel } from "./SegmentPanel";
@@ -20,6 +22,9 @@ import type { SegmentController } from "../ml/segmentController";
 import { useAnnotations } from "../annotate/store";
 import { loadDocument, saveDocument, slideKeyOf } from "../io/persistence";
 import { getRememberAnnotations, setRememberAnnotations } from "../io/prefs";
+import { loadLocalModels } from "../ml/localModels";
+import { SpatialController } from "../ml/spatialController";
+import { useSpatial } from "../ml/spatialStore";
 import { fromGeoJSON, isGeoJSONFile } from "../io/geojson";
 
 interface Stats { tiles: number; avgMs: number; maxMs: number; errors: number }
@@ -38,6 +43,8 @@ export function App() {
   const [slideFilter, setSlideFilter] = useState("");
   const [tab, setTab] = useState<SidebarTab>("slides");
   const [remember, setRemember] = useState(getRememberAnnotations);
+  const [spatial, setSpatial] = useState<SpatialController | null>(null);
+  const [importingSpatial, setImportingSpatial] = useState(false);
   const annotationItems = useAnnotations((s) => s.items);
   const annotationVersion = useAnnotations((s) => s.version);
   const [loading, setLoading] = useState(false);
@@ -274,6 +281,36 @@ export function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source, remember]);
 
+  /**
+   * One spatial controller per open slide.
+   *
+   * It owns a worker holding a loaded model, so it is torn down when the slide
+   * changes rather than left running against pixels it can no longer read. Any
+   * previous prediction is cleared with it: an expression map belongs to the
+   * slide it was computed on, and leaving it drawn over the next one would be
+   * the most convincing wrong result the app could produce.
+   */
+  useEffect(() => {
+    if (!source) {
+      setSpatial(null);
+      useSpatial.getState().setResult(null);
+      return;
+    }
+    const controller = new SpatialController(source);
+    setSpatial(controller);
+    useSpatial.getState().setResult(null);
+    useSpatial.getState().setStatus("idle");
+
+    void loadLocalModels().then((all) => {
+      useSpatial.getState().setModels(all.filter((m) => m.task === "virtual-spatial"));
+    });
+
+    return () => {
+      controller.destroy();
+      setSpatial(null);
+    };
+  }, [source]);
+
   // Autosave, debounced so a brush stroke does not thrash IndexedDB.
   useEffect(() => {
     if (!source) return;
@@ -503,6 +540,13 @@ export function App() {
             />
           )}
           {tab === "patches" && source && <PatchPanel meta={source.meta} />}
+          {tab === "spatial" && source && (
+            <SpatialPanel
+              meta={source.meta}
+              controller={spatial}
+              onImport={() => setImportingSpatial(true)}
+            />
+          )}
           {tab === "annotate" && source && <AnnotationPanel meta={source.meta} />}
           {/* Slide metadata belongs with the slide it describes. */}
           {tab === "slides" && source && <MetadataPanel meta={source.meta} />}
@@ -567,7 +611,9 @@ export function App() {
           )
         )}
 
-        {loading && (
+        {importingSpatial && <ImportSpatialDialog close={() => setImportingSpatial(false)} />}
+
+      {loading && (
           <div className="loading-veil">
             <div>
               <span className="spinner" />

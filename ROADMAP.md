@@ -184,6 +184,22 @@ cluster, with a legend. Millions of transcripts means binning and
 level-of-detail: a scatter layer at whole-slide zoom is not readable even when
 it renders.
 
+**6c½ — Virtual spatial (built).** Expression predicted from the H&E itself,
+without an assay on this section. DeepSpot-M reads a 224 px tile at ~20× and
+answers with a value per gene, using a frozen pathology encoder and a
+cross-attention decoder in which each gene is a query — which is what makes it
+tractable here, because asking for eight genes costs a fraction of asking for
+19,338, and the exporter bakes a chosen subset into the graph.
+
+Scope is one ROI or the whole detected tissue; the ROI case is the one that gets
+used, being quick enough to iterate on. Results colour the patch grid, export as
+CSV, and are labelled *predicted* everywhere they appear — a map that looks like
+an assay and is not is the main thing that can go wrong with this feature.
+
+The weights are gated to non-commercial academic use and are released as PyTorch
+safetensors, so the conversion to ONNX is a one-off script the user runs with
+their own token. Nothing is bundled.
+
 **6d — The loop, on expression.** Everything already built then applies. Draw an
 ROI, patch it, and the patches carry expression as well as pixels: label regions
 by morphology and ask what is differentially expressed in them; or label by

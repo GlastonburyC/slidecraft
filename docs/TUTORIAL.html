@@ -182,7 +182,22 @@
 <p>The grid also leaves as coordinates rather than as image files:</p>
 <ul><li><strong>Export coordinates</strong> writes <code>&lt;slide&gt;.patches.json</code> — every patch's top-left in level-0 pixels, plus the level and size, which is exactly what <code>read_region(x, y, level, size, size)</code> takes. The panel includes the Python to read them back.</li><li><strong>Export GeoJSON</strong> writes the same squares as polygons, to open beside the slide and check what was patched.</li></ul>
 <p>Nothing is copied out of the browser, so the patches cannot drift from the slide they came from.</p>
-<h3>10. Export</h3>
+<h3>10. Virtual spatial transcriptomics</h3>
+<p>The <strong>Spatial</strong> tab predicts gene expression from the H&E itself — no assay on this section. It is built around DeepSpot-M, which reads a 224 px tile at about 20× and answers with a value per gene.</p>
+<h4>Getting the model</h4>
+<p>The weights are gated and released as PyTorch, so there is a one-off setup:</p>
+<ol><li>Accept the terms at <code>huggingface.co/ratschlab/DeepSpotM</code>. They are limited to academic and public non-profit research, with no concurrent commercial role.</li><li><code>huggingface-cli login</code></li><li><code>python scripts/export_deepspot.py --genes EPCAM CD3D PTPRC COL1A1</code></li><li><strong>Import model…</strong> in the Spatial tab, and give it both the <code>.onnx</code> and the <code>.onnx.json</code> written beside it.</li></ol>
+<p>Slidecraft cannot accept that licence on your behalf, so it cannot fetch the weights for you, and it bundles nothing.</p>
+<p>Pick your genes at export time. Each gene is a query into the decoder, so eight genes cost a fraction of all 19,338 — that is what makes this run in a browser at all.</p>
+<h4>Running it</h4>
+<p>Choose <strong>This ROI</strong> or <strong>Whole slide</strong>, then <strong>Predict expression</strong>.</p>
+<p>Start with an ROI. It is quick enough to iterate on, and it is how you find out whether the model says anything sensible about your material before spending an hour on a slide. Progress shows the per-patch cost as it goes, and <strong>stop</strong> ends the run without leaving a half-finished map on screen.</p>
+<p>The grid is laid at the model's own patch size and magnification, not the Patches tab's — feeding a 40× tile to a model trained at 20× shows it half the tissue it expects, which changes the answer without failing.</p>
+<h4>Reading it</h4>
+<p>Pick a gene from the list to colour the map. The scale is viridis, clipped to the 2nd and 98th percentiles so one saturated patch — a fold, a pen mark — cannot flatten everything else to the bottom of the range.</p>
+<p><strong>Export CSV</strong> writes a row per patch with its coordinates and every gene, so the result goes back to R or scanpy.</p>
+<blockquote><p>These values are <strong>predicted from morphology, not measured</strong>. They are a hypothesis to check against an assay, not a substitute for one. The panel says so, and it is worth repeating to anyone you show a map to.</p></blockquote>
+<h3>11. Export</h3>
 <p>The Annotations panel exports GeoJSON in level-0 slide pixels, with QuPath's</p>
 <p>directions.</p>
 <hr>

@@ -5,6 +5,8 @@ import { renderableRings } from "../annotate/geometry";
 import { handlesOf, boxOf, resizeTarget, type Handle } from "../annotate/resize";
 import { useAnnotations } from "../annotate/store";
 import { useMl } from "../ml/mlStore";
+import { colourFor, geneValues, robustRange } from "../ml/spatialResult";
+import { useSpatial } from "../ml/spatialStore";
 import type { Annotation, Position, Ring } from "../annotate/types";
 import { ROI_CLASS_ID, ROI_COLOR } from "../annotate/types";
 
@@ -75,11 +77,22 @@ export class AnnotationOverlay {
     const unsubMl = useMl.subscribe((s, prev) => {
       if (s.grid !== prev.grid) this.scheduleRender();
     });
+    const unsubSpatial = useSpatial.subscribe((s, prev) => {
+      if (
+        s.result !== prev.result ||
+        s.gene !== prev.gene ||
+        s.opacity !== prev.opacity ||
+        s.visible !== prev.visible
+      ) {
+        this.scheduleRender();
+      }
+    });
     this.unsubscribe = () => {
       this.viewer.removeHandler("update-viewport", syncRedraw);
       this.viewer.removeHandler("resize", syncRedraw);
       unsubStore();
       unsubMl();
+      unsubSpatial();
     };
 
     this.scheduleRender();
@@ -281,6 +294,47 @@ export class AnnotationOverlay {
     }
 
     // ------------------------------------------------------------- draft ---
+    /**
+     * Predicted expression, one square per patch.
+     *
+     * Drawn beneath the annotations rather than over them: the expression is
+     * the field being read, and the boundaries drawn on it have to stay legible
+     * against it. It has its own opacity for the same reason — this is the one
+     * layer you want to fade in and out against the tissue underneath.
+     */
+    const spatial = useSpatial.getState();
+    if (spatial.visible && spatial.result && spatial.gene) {
+      const values = geneValues(spatial.result, spatial.gene);
+      if (values) {
+        const range = robustRange(values);
+        const side = spatial.result.side;
+        const alpha = Math.round(255 * spatial.opacity);
+        const patches = spatial.result.patches;
+        layers.push(
+          new PolygonLayer<{ i: number }>({
+            id: `spatial-${spatial.result.createdAt}-${spatial.gene}`,
+            data: patches.map((_, i) => ({ i })),
+            getPolygon: (d) => {
+              const p = patches[d.i];
+              return [[
+                [p.x, p.y],
+                [p.x + side, p.y],
+                [p.x + side, p.y + side],
+                [p.x, p.y + side],
+              ]];
+            },
+            getFillColor: (d) => {
+              const [r, g, b] = colourFor(values[d.i], range);
+              return [r, g, b, alpha];
+            },
+            filled: true,
+            stroked: false,
+            updateTriggers: { getFillColor: `${spatial.gene}|${spatial.opacity}` },
+          }),
+        );
+      }
+    }
+
     /**
      * The patch grid an ROI will be sampled into.
      *

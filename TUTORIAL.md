@@ -193,7 +193,57 @@ The grid also leaves as coordinates rather than as image files:
 Nothing is copied out of the browser, so the patches cannot drift from the
 slide they came from.
 
-## 10. Export
+## 10. Virtual spatial transcriptomics
+
+The **Spatial** tab predicts gene expression from the H&E itself — no assay on
+this section. It is built around DeepSpot-M, which reads a 224 px tile at about
+20× and answers with a value per gene.
+
+### Getting the model
+
+The weights are gated and released as PyTorch, so there is a one-off setup:
+
+1. Accept the terms at `huggingface.co/ratschlab/DeepSpotM`. They are limited to
+   academic and public non-profit research, with no concurrent commercial role.
+2. `huggingface-cli login`
+3. `python scripts/export_deepspot.py --genes EPCAM CD3D PTPRC COL1A1`
+4. **Import model…** in the Spatial tab, and give it both the `.onnx` and the
+   `.onnx.json` written beside it.
+
+Slidecraft cannot accept that licence on your behalf, so it cannot fetch the
+weights for you, and it bundles nothing.
+
+Pick your genes at export time. Each gene is a query into the decoder, so eight
+genes cost a fraction of all 19,338 — that is what makes this run in a browser
+at all.
+
+### Running it
+
+Choose **This ROI** or **Whole slide**, then **Predict expression**.
+
+Start with an ROI. It is quick enough to iterate on, and it is how you find out
+whether the model says anything sensible about your material before spending an
+hour on a slide. Progress shows the per-patch cost as it goes, and **stop** ends
+the run without leaving a half-finished map on screen.
+
+The grid is laid at the model's own patch size and magnification, not the
+Patches tab's — feeding a 40× tile to a model trained at 20× shows it half the
+tissue it expects, which changes the answer without failing.
+
+### Reading it
+
+Pick a gene from the list to colour the map. The scale is viridis, clipped to
+the 2nd and 98th percentiles so one saturated patch — a fold, a pen mark —
+cannot flatten everything else to the bottom of the range.
+
+**Export CSV** writes a row per patch with its coordinates and every gene, so
+the result goes back to R or scanpy.
+
+> These values are **predicted from morphology, not measured**. They are a
+> hypothesis to check against an assay, not a substitute for one. The panel says
+> so, and it is worth repeating to anyone you show a map to.
+
+## 11. Export
 
 The Annotations panel exports GeoJSON in level-0 slide pixels, with QuPath's
 `objectType` and `classification` fields, so it round-trips with QuPath in both

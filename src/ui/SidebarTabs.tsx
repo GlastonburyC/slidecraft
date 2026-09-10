@@ -12,7 +12,7 @@
  * tools above it change.
  */
 
-export type SidebarTab = "slides" | "annotate" | "tissue" | "cells" | "patches";
+export type SidebarTab = "slides" | "annotate" | "tissue" | "cells" | "patches" | "spatial";
 
 interface TabDef {
   id: SidebarTab;
@@ -46,6 +46,13 @@ export const SIDEBAR_TABS: TabDef[] = [
     label: "Cells",
     hint: "Click-to-segment and its models",
     path: "M10 4.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11zM10 8.6a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8z",
+  },
+  {
+    id: "spatial",
+    label: "Spatial",
+    hint: "Predict spatial gene expression from the H&E",
+    // A double helix, matching SpatialMark on the toolbar's 20-unit grid.
+    path: "M6 3c0 4 8 4 8 7s-8 3-8 7M14 3c0 4-8 4-8 7s8 3 8 7M7.4 6.2h5.2M6.2 13.8h7.6",
   },
   {
     id: "patches",
