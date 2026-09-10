@@ -4,6 +4,7 @@ import { useAnnotations } from "../annotate/store";
 import { ROI_CLASS_ID } from "../annotate/types";
 import { buildPatchGrid } from "../ml/patchGrid";
 import type { PredictController } from "../ml/predictController";
+import { removeLocalModel } from "../ml/localModels";
 import { usePredict } from "../ml/predictStore";
 import { findModel, formatBytes, totalBytes } from "../ml/registry";
 import type { SlideMeta } from "../slide/types";
@@ -37,7 +38,7 @@ export function PredictPanel({
   const classes = useAnnotations((s) => s.classes);
 
   const {
-    encoders, encoderId, setEncoder, status, error, download, backend,
+    encoders, encoderId, setEncoder, setEncoders, status, error, download, backend,
     embedded, vectors, grid, head, prediction,
     shownClass, setShownClass, opacity, setOpacity, visible, setVisible,
     threshold, setThreshold,
@@ -45,6 +46,43 @@ export function PredictPanel({
 
   const [patchPx, setPatchPx] = useState(224);
   const [importing, setImporting] = useState(false);
+  const [readTest, setReadTest] = useState<string | null>(null);
+
+  /**
+   * Read one patch straight off the slide, bypassing the embedding loop.
+   *
+   * When a run stalls at "reading the slide", the question is whether the
+   * slide layer is wedged or whether something about the way the loop calls it
+   * is. That is one line in a console, which is one line too many to ask for
+   * mid-investigation — so it is a button.
+   */
+  const testRead = async () => {
+    setReadTest("reading…");
+    const started = performance.now();
+    try {
+      const [x, y] = roi ? [roi.bbox[0], roi.bbox[1]] : [0, 0];
+      const result = await Promise.race([
+        meta && controller
+          ? (async () => {
+              await (controller as unknown as { source: { readRegion: (
+                x: number, y: number, l: number, w: number, h: number,
+              ) => Promise<unknown> } }).source.readRegion(x, y, 0, 224, 224);
+              return "ok";
+            })()
+          : Promise.resolve("no slide"),
+        new Promise<string>((r) => setTimeout(() => r("HUNG"), 15000)),
+      ]);
+      setReadTest(
+        result === "ok"
+          ? `read 224×224 at (${Math.round(x)}, ${Math.round(y)}) in ${Math.round(performance.now() - started)} ms — the slide layer is fine`
+          : result === "HUNG"
+            ? `the slide layer is wedged: a plain read at (${Math.round(x)}, ${Math.round(y)}) did not return in 15s`
+            : result,
+      );
+    } catch (err) {
+      setReadTest(`read failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const picked = useMemo(() => pickRoi(items, selection), [version, selection, items]);
@@ -111,23 +149,38 @@ export function PredictPanel({
       ) : (
         <>
           {encoders.map((m) => (
-            <button
-              key={m.id}
-              className="model-option"
-              aria-current={m.id === encoderId}
-              onClick={() => setEncoder(m.id)}
-              disabled={busy}
-            >
-              <div className="model-option-head">
-                <span className="radio" data-on={m.id === encoderId} />
-                <span className="model-option-name">{m.name}</span>
-                <span className="model-option-size">{formatBytes(totalBytes(m))}</span>
-              </div>
-              <div className="model-option-blurb">
-                {m.dim ? `${m.dim}-d` : "unknown width"}
-                {m.targetMpp ? ` · ${m.inputSize}px at ${m.targetMpp} µm/px` : ` · ${m.inputSize}px`}
-              </div>
-            </button>
+            <div key={m.id} className="model-row">
+              <button
+                className="model-option"
+                aria-current={m.id === encoderId}
+                onClick={() => setEncoder(m.id)}
+                disabled={busy}
+              >
+                <div className="model-option-head">
+                  <span className="radio" data-on={m.id === encoderId} />
+                  <span className="model-option-name">{m.name}</span>
+                  <span className="model-option-size">{formatBytes(totalBytes(m))}</span>
+                </div>
+                <div className="model-option-blurb">
+                  {m.dim ? `${m.dim}-d` : "unknown width"}
+                  {m.targetMpp ? ` · ${m.inputSize}px at ${m.targetMpp} µm/px` : ` · ${m.inputSize}px`}
+                </div>
+              </button>
+              <button
+                className="model-remove"
+                aria-label={`Remove ${m.name}`}
+                title="Remove this encoder and its weights"
+                disabled={busy}
+                onClick={() => {
+                  if (!window.confirm(`Remove "${m.name}" and its weights?`)) return;
+                  void removeLocalModel(m.id).then(() =>
+                    setEncoders(encoders.filter((x) => x.id !== m.id)),
+                  );
+                }}
+              >
+                ×
+              </button>
+            </div>
           ))}
 
           <label className="field">
@@ -191,6 +244,15 @@ export function PredictPanel({
 
           {status === "error" && error && <div className="note err">{error}</div>}
           {status === "embedding" && error && <div className="note warn">{error}</div>}
+
+          {(status === "error" || readTest) && (
+            <>
+              <button className="btn" style={{ width: "100%" }} onClick={() => void testRead()}>
+                Test a single slide read
+              </button>
+              {readTest && <div className="picker-hint">{readTest}</div>}
+            </>
+          )}
 
           <button className="mini" onClick={() => setImporting(true)}>import another encoder</button>
         </>
