@@ -32,6 +32,24 @@ const BATCH = 2;
 /** A batch slower than this is reported, rather than left looking like a hang. */
 const SLOW_BATCH_MS = 45_000;
 
+/**
+ * A single patch read that takes longer than this has not simply been slow.
+ *
+ * Reading a 224px region off an open slide is milliseconds; a minute means the
+ * decoder pool is wedged, and waiting forever turns that into a progress bar
+ * that never moves. Better to say so and let the run fail with a cause.
+ */
+const READ_TIMEOUT_MS = 60_000;
+
+function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> {
+  return Promise.race([
+    work,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`${what} did not return within ${ms / 1000}s`)), ms),
+    ),
+  ]);
+}
+
 /** Thrown into any in-flight request when the user presses stop. */
 class Cancelled extends Error {
   constructor() {
@@ -170,13 +188,23 @@ export class PredictController {
       for (let at = 0; at < todo.length; at += BATCH) {
         if (this.cancelled) break;
         const batch = todo.slice(at, at + BATCH);
+        // Traced because a stalled run is otherwise indistinguishable at every
+        // step: the console says which patch, at which level, and how long.
+        console.info(
+          `[predict] batch ${at / BATCH + 1}: reading ${batch.length} patches ` +
+            `at level ${level}, ${readSide}px -> ${size}px`,
+        );
 
         const tiles = new Uint8ClampedArray(batch.length * size * size * 4);
         for (const [n, p] of batch.entries()) {
           // Checked per patch, not per batch: reading several regions off a
           // slide is itself long enough for a stop to feel ignored.
           if (this.cancelled) break;
-          const rgba = await this.source.readRegion(p.x, p.y, level, readSide, readSide);
+          const rgba = await withTimeout(
+            this.source.readRegion(p.x, p.y, level, readSide, readSide),
+            READ_TIMEOUT_MS,
+            `Reading patch ${p.index} at level ${level}`,
+          );
           resampleTo(rgba, readSide, readSide, tiles.subarray(n * size * size * 4, (n + 1) * size * size * 4), size);
         }
 
@@ -191,11 +219,13 @@ export class PredictController {
         });
 
         const batchStarted = performance.now();
-        const res = await this.send(
-          { type: "embed", tiles: tiles.buffer, size, count: batch.length },
-          [tiles.buffer],
+        const res = await withTimeout(
+          this.send({ type: "embed", tiles: tiles.buffer, size, count: batch.length }, [tiles.buffer]),
+          10 * 60_000,
+          `Encoding a batch of ${batch.length}`,
         );
         const batchMs = performance.now() - batchStarted;
+        console.info(`[predict] batch encoded in ${Math.round(batchMs)} ms`);
         if (batchMs > SLOW_BATCH_MS && at === 0) {
           store.setStatus(
             "embedding",
