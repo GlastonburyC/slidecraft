@@ -24,7 +24,7 @@ a download button in the app.
 first — academic or public non-profit affiliation, no concurrent commercial role
 and no commercially-funded research — and then authenticate:
 
-    huggingface-cli login          # or: export HF_TOKEN=...
+    .venv-export/bin/hf auth login      # or: export HF_TOKEN=...
 
 Slidecraft cannot accept those terms for you, so it cannot fetch the weights on
 your behalf.
@@ -57,7 +57,7 @@ def main() -> int:
                     help="Export every gene the model knows (much larger and slower)")
     ap.add_argument("--out", default="deepspot-m.onnx")
     ap.add_argument("--token", default=None,
-                    help="HuggingFace token; defaults to HF_TOKEN or a huggingface-cli login")
+                    help="HuggingFace token; defaults to HF_TOKEN or a hf auth login")
     ap.add_argument("--opset", type=int, default=17)
     args = ap.parse_args()
 
@@ -86,7 +86,7 @@ def main() -> int:
             f"Could not load {args.repo}: {err}\n\n"
             "This repository is gated. Accept its conditions at\n"
             f"  https://huggingface.co/{args.repo}\n"
-            "then run `huggingface-cli login` or set HF_TOKEN.",
+            "then run `.venv-export/bin/hf auth login`, or set HF_TOKEN.",
             file=sys.stderr,
         )
         return 1

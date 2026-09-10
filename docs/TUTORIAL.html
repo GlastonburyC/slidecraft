@@ -186,7 +186,7 @@
 <p>The <strong>Spatial</strong> tab predicts gene expression from the H&E itself — no assay on this section. It is built around DeepSpot-M, which reads a 224 px tile at about 20× and answers with a value per gene.</p>
 <h4>Getting the model</h4>
 <p>The weights are gated and released as PyTorch, so there is a one-off setup:</p>
-<ol><li>Accept the terms at <code>huggingface.co/ratschlab/DeepSpotM</code>. They are limited to academic and public non-profit research, with no concurrent commercial role.</li><li><code>huggingface-cli login</code></li><li><code>python scripts/export_deepspot.py --genes EPCAM CD3D PTPRC COL1A1</code></li><li><strong>Import model…</strong> in the Spatial tab, and give it both the <code>.onnx</code> and the <code>.onnx.json</code> written beside it.</li></ol>
+<ol><li>Accept the terms at <code>huggingface.co/ratschlab/DeepSpotM</code>. They are limited to academic and public non-profit research, with no concurrent commercial role.</li><li><code>.venv-export/bin/hf auth login</code> — note the path; <code>hf</code> is not on your PATH</li><li><code>.venv-export/bin/python scripts/export_deepspot.py --genes EPCAM CD3D PTPRC COL1A1</code></li><li><strong>Import model…</strong> in the Spatial tab, and give it both the <code>.onnx</code> and the <code>.onnx.json</code> written beside it.</li></ol>
 <p>Slidecraft cannot accept that licence on your behalf, so it cannot fetch the weights for you, and it bundles nothing.</p>
 <p>Pick your genes at export time. Each gene is a query into the decoder, so eight genes cost a fraction of all 19,338 — that is what makes this run in a browser at all.</p>
 <h4>Running it</h4>

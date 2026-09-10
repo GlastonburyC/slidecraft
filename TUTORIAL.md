@@ -205,8 +205,8 @@ The weights are gated and released as PyTorch, so there is a one-off setup:
 
 1. Accept the terms at `huggingface.co/ratschlab/DeepSpotM`. They are limited to
    academic and public non-profit research, with no concurrent commercial role.
-2. `huggingface-cli login`
-3. `python scripts/export_deepspot.py --genes EPCAM CD3D PTPRC COL1A1`
+2. `.venv-export/bin/hf auth login` — note the path; `hf` is not on your PATH
+3. `.venv-export/bin/python scripts/export_deepspot.py --genes EPCAM CD3D PTPRC COL1A1`
 4. **Import model…** in the Spatial tab, and give it both the `.onnx` and the
    `.onnx.json` written beside it.
 

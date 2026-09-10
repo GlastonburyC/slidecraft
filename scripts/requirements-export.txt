@@ -9,7 +9,7 @@
 # with `python3 -c "import platform;print(platform.machine())"`), the quickest
 # fix needs no compiler and no sudo:
 #
-#   pip install uv
+#   pip install uv   # then, after installing: .venv-export/bin/hf auth login
 #   uv python install 3.12
 #   uv venv --python 3.12 .venv-export
 #   uv pip install --python .venv-export/bin/python -r scripts/requirements-export.txt

@@ -114,8 +114,8 @@ export function SpatialPanel({
               Accept the terms at <code>huggingface.co/ratschlab/DeepSpotM</code> — the weights
               are gated to academic and non-profit use.
             </li>
-            <li><code>huggingface-cli login</code></li>
-            <li><code>python scripts/export_deepspot.py --genes EPCAM CD3D PTPRC</code></li>
+            <li><code>.venv-export/bin/hf auth login</code></li>
+            <li><code>.venv-export/bin/python scripts/export_deepspot.py --genes EPCAM CD3D PTPRC</code></li>
             <li>Import the <code>.onnx</code> and its <code>.onnx.json</code> below.</li>
           </ol>
           <div className="picker-hint">
