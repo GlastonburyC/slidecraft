@@ -172,9 +172,13 @@ export function PredictPanel({
               </div>
               <div className="hint">
                 {embedded.done} of {embedded.total} patches
-                {embedded.cached > 0 && ` · ${embedded.cached} already cached`}
+                {embedded.stage === "encoding" ? " · encoding…" : " · reading the slide…"}
+                {embedded.cached > 0 && ` · ${embedded.cached} cached`}
                 {embedded.done > embedded.cached && embedded.ms > 0 && (
                   <> · {(embedded.ms / (embedded.done - embedded.cached)).toFixed(0)} ms each</>
+                )}
+                {embedded.ms > 5000 && embedded.done === embedded.cached && (
+                  <> · {Math.round(embedded.ms / 1000)}s elapsed on the first batch</>
                 )}
                 {status === "embedding" && (
                   <button className="mini" style={{ marginLeft: 8 }} onClick={() => controller?.cancel()}>
@@ -186,6 +190,7 @@ export function PredictPanel({
           )}
 
           {status === "error" && error && <div className="note err">{error}</div>}
+          {status === "embedding" && error && <div className="note warn">{error}</div>}
 
           <button className="mini" onClick={() => setImporting(true)}>import another encoder</button>
         </>

@@ -18,7 +18,19 @@ import { resampleTo } from "./spatialController";
  * prediction and seeing the result a single action.
  */
 
-const BATCH = 8;
+/**
+ * Patches per forward pass.
+ *
+ * Small on purpose. The load-time probe proves a ViT-H runs at batch 1, but
+ * activations scale with the batch, and a WebGPU device that manages one patch
+ * can stall or fail allocating for eight — with no error, because the failure
+ * is a buffer request that never returns. Whatever is gained by batching is
+ * not worth a run that appears to hang.
+ */
+const BATCH = 2;
+
+/** A batch slower than this is reported, rather than left looking like a hang. */
+const SLOW_BATCH_MS = 45_000;
 
 /** Thrown into any in-flight request when the user presses stop. */
 class Cancelled extends Error {
@@ -146,7 +158,7 @@ export class PredictController {
     const cached = grid.patches.length - todo.length;
 
     store.setStatus("embedding");
-    store.setEmbedded({ done: cached, total: grid.patches.length, cached, ms: 0 });
+    store.setEmbedded({ done: cached, total: grid.patches.length, cached, ms: 0, stage: "reading" });
 
     const started = performance.now();
     const size = spec.inputSize;
@@ -161,17 +173,36 @@ export class PredictController {
 
         const tiles = new Uint8ClampedArray(batch.length * size * size * 4);
         for (const [n, p] of batch.entries()) {
-          // Checked per patch, not per batch: reading eight regions off a slide
-          // is itself long enough for a stop to feel ignored.
+          // Checked per patch, not per batch: reading several regions off a
+          // slide is itself long enough for a stop to feel ignored.
           if (this.cancelled) break;
           const rgba = await this.source.readRegion(p.x, p.y, level, readSide, readSide);
           resampleTo(rgba, readSide, readSide, tiles.subarray(n * size * size * 4, (n + 1) * size * size * 4), size);
         }
 
+        // Reported before the forward pass, so a slow encoder and a slow slide
+        // reader are distinguishable rather than one undifferentiated wait.
+        store.setEmbedded({
+          done: cached + at,
+          total: grid.patches.length,
+          cached,
+          ms: performance.now() - started,
+          stage: "encoding",
+        });
+
+        const batchStarted = performance.now();
         const res = await this.send(
           { type: "embed", tiles: tiles.buffer, size, count: batch.length },
           [tiles.buffer],
         );
+        const batchMs = performance.now() - batchStarted;
+        if (batchMs > SLOW_BATCH_MS && at === 0) {
+          store.setStatus(
+            "embedding",
+            `The first batch took ${Math.round(batchMs / 1000)}s. At that rate this ROI needs ` +
+              `about ${Math.round((batchMs / BATCH) * grid.patches.length / 60000)} minutes.`,
+          );
+        }
         if (this.cancelled) break;
         if (res.type !== "embedded") throw new Error("unexpected reply from the encoder");
 
@@ -186,6 +217,7 @@ export class PredictController {
           total: grid.patches.length,
           cached,
           ms: performance.now() - started,
+          stage: "reading",
         });
       }
       await cache.flush();

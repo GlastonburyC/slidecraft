@@ -25,7 +25,14 @@ interface PredictState {
   download: number;
   backend: string | null;
   /** Embedding progress over the current grid. */
-  embedded: { done: number; total: number; cached: number; ms: number } | null;
+  embedded: {
+    done: number;
+    total: number;
+    cached: number;
+    ms: number;
+    /** Which half of the loop the time is going into. */
+    stage?: "reading" | "encoding";
+  } | null;
   /** Vectors for the grid in view, kept in memory for instant retraining. */
   vectors: Float32Array | null;
   dim: number;
