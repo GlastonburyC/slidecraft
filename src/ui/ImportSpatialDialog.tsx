@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { importSpatialModel } from "../ml/localModels";
+import { importSidecarModel } from "../ml/localModels";
 import { useSpatial } from "../ml/spatialStore";
+import { usePredict } from "../ml/predictStore";
 
 /**
  * Import a virtual-spatial model.
@@ -10,21 +11,32 @@ import { useSpatial } from "../ml/spatialStore";
  * magnification, none of which can be guessed — which is why this asks for it
  * rather than offering a set of presets to pick wrongly from.
  */
-export function ImportSpatialDialog({ close }: { close: () => void }) {
+export function ImportSpatialDialog({
+  close, kind = "virtual-spatial",
+}: {
+  close: () => void;
+  /** Which panel opened it — only the wording and the destination differ. */
+  kind?: "virtual-spatial" | "encode";
+}) {
   const [onnx, setOnnx] = useState<File | null>(null);
   const [sidecar, setSidecar] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const setModels = useSpatial((s) => s.setModels);
-  const models = useSpatial((s) => s.models);
+  const setSpatialModels = useSpatial((s) => s.setModels);
+  const spatialModels = useSpatial((s) => s.models);
+  const setEncoders = usePredict((s) => s.setEncoders);
+  const encoders = usePredict((s) => s.encoders);
 
   const submit = async () => {
     if (!onnx || !sidecar) return;
     setBusy(true);
     setError(null);
     try {
-      const spec = await importSpatialModel({ onnx, sidecar });
-      setModels([spec, ...models]);
+      const spec = await importSidecarModel({ onnx, sidecar });
+      // The sidecar decides where it belongs, not the dialog that opened it —
+      // so importing an encoder from the Spatial panel still lands correctly.
+      if (spec.task === "encode") setEncoders([spec, ...encoders]);
+      else setSpatialModels([spec, ...spatialModels]);
       close();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -36,11 +48,18 @@ export function ImportSpatialDialog({ close }: { close: () => void }) {
   return (
     <div className="modal-backdrop" onClick={close}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">Import a spatial model</div>
+        <div className="modal-head">
+          {kind === "encode" ? "Import a patch encoder" : "Import a spatial model"}
+        </div>
 
         <div className="picker-hint">
-          Export one first with <code>scripts/export_deepspot.py</code>, which writes both files.
-          Nothing is uploaded — the weights are stored in this browser.
+          Export one first with{" "}
+          <code>
+            {kind === "encode"
+              ? "scripts/export_onnx.py --preset uni2 --fp16"
+              : "scripts/export_deepspot.py"}
+          </code>
+          , which writes both files. Nothing is uploaded — the weights are stored in this browser.
         </div>
 
         <label className="field">

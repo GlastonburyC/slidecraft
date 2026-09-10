@@ -7,6 +7,7 @@ import type { PredictController } from "../ml/predictController";
 import { usePredict } from "../ml/predictStore";
 import { findModel, formatBytes, totalBytes } from "../ml/registry";
 import type { SlideMeta } from "../slide/types";
+import { ImportSpatialDialog } from "./ImportSpatialDialog";
 
 /**
  * The human-in-the-loop prediction panel.
@@ -43,6 +44,7 @@ export function PredictPanel({
   } = usePredict();
 
   const [patchPx, setPatchPx] = useState(224);
+  const [importing, setImporting] = useState(false);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const picked = useMemo(() => pickRoi(items, selection), [version, selection, items]);
@@ -91,11 +93,21 @@ export function PredictPanel({
       <h2>Predict</h2>
 
       {encoders.length === 0 ? (
-        <div className="hint">
-          No encoder imported. These turn a patch into a feature vector — export UNI2-h or
-          Virchow2 with <code>scripts/export_onnx.py --preset uni2</code>, then import it under
-          Models.
-        </div>
+        <>
+          <div className="hint">
+            No encoder imported. These turn a patch into a feature vector, which is what the
+            head learns from.
+          </div>
+          <ol className="steps-hint">
+            <li>
+              <code>python scripts/export_onnx.py MahmoodLab/UNI2-h --preset uni2 --fp16</code>
+            </li>
+            <li>Import the <code>.onnx</code> and its <code>.onnx.json</code> below.</li>
+          </ol>
+          <button className="btn" style={{ width: "100%" }} onClick={() => setImporting(true)}>
+            Import encoder…
+          </button>
+        </>
       ) : (
         <>
           {encoders.map((m) => (
@@ -162,8 +174,12 @@ export function PredictPanel({
           )}
 
           {status === "error" && error && <div className="note err">{error}</div>}
+
+          <button className="mini" onClick={() => setImporting(true)}>import another encoder</button>
         </>
       )}
+
+      {importing && <ImportSpatialDialog kind="encode" close={() => setImporting(false)} />}
 
       {vectors && grid && (
         <>

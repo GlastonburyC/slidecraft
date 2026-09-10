@@ -24,6 +24,15 @@ const SIDECAR_PREFIX_FORMATS = new Set(["vms", "vmu"]);
 /** Annotation sidecars, in the order they are preferred. */
 const ANNOTATION_SUFFIXES = [".slidecraft.geojson", ".geojson", ".json"];
 
+/**
+ * Sidecars that are not annotations, however much the extension suggests it.
+ *
+ * A model export writes `<name>.onnx.json`, which ends in .json and is nothing
+ * to do with a slide. Parsing it as GeoJSON reports "no usable features",
+ * which is true and completely unhelpful.
+ */
+const NOT_ANNOTATIONS = [".onnx.json"];
+
 /** Precomputed expression maps, likewise named after the slide. */
 const EXPRESSION_SUFFIXES = [".expression.bin", ".expr"];
 
@@ -140,7 +149,10 @@ export function resolveSlides(files: ResolvedFile[]): ResolvedSlide[] {
     let annotations: File | null = null;
     for (const suffix of ANNOTATION_SUFFIXES) {
       const hit = byPath.get(stemPath + suffix);
-      if (hit) { annotations = hit.file; break; }
+      if (hit && !NOT_ANNOTATIONS.some((x) => hit.path.toLowerCase().endsWith(x))) {
+        annotations = hit.file;
+        break;
+      }
     }
 
     let expression: File | null = null;

@@ -120,6 +120,15 @@ export function App() {
   }, []);
 
   const importGeoJSONFile = useCallback(async (file: File) => {
+    // A model export is `<name>.onnx.json`; parsing it as GeoJSON reports "no
+    // usable features", which is accurate and tells the user nothing.
+    if (file.name.toLowerCase().endsWith(".onnx.json")) {
+      setError(
+        `${file.name} is a model sidecar, not annotations. Import it with its .onnx under ` +
+          `Predict or Spatial.`,
+      );
+      return;
+    }
     try {
       const parsed: unknown = JSON.parse(await file.text());
       const store = useAnnotations.getState();

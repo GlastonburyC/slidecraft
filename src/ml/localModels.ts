@@ -190,6 +190,8 @@ export interface SpatialImport {
 
 interface Sidecar {
   name?: string;
+  task?: "encode" | "virtual-spatial";
+  dim?: number;
   blurb?: string;
   inputSize?: number;
   mean?: [number, number, number];
@@ -202,7 +204,14 @@ interface Sidecar {
   precision?: "fp16" | "fp32";
 }
 
-export async function importSpatialModel(req: SpatialImport): Promise<ModelSpec> {
+/**
+ * Import any model the exporters produce, spatial or encoder alike.
+ *
+ * The sidecar says which it is. Asking the user to pick would be asking them
+ * to re-state something the export already knows — and to get it wrong, since
+ * a patch encoder and a gene predictor differ only in what their output means.
+ */
+export async function importSidecarModel(req: SpatialImport): Promise<ModelSpec> {
   if (!req.onnx.name.toLowerCase().endsWith(".onnx")) {
     throw new Error("The model file must be a .onnx graph.");
   }
@@ -216,29 +225,42 @@ export async function importSpatialModel(req: SpatialImport): Promise<ModelSpec>
     );
   }
 
-  if (!meta.genes?.length) {
+  const task = meta.task ?? (meta.genes?.length ? "virtual-spatial" : "encode");
+  if (!meta.inputSize) throw new Error("The sidecar does not say what input size the model takes.");
+
+  if (task === "virtual-spatial" && !meta.genes?.length) {
     throw new Error(
       "The sidecar lists no genes. Without them a prediction is a row of numbers with " +
         "nothing to name them — re-export with scripts/export_deepspot.py.",
     );
   }
-  if (!meta.inputSize) throw new Error("The sidecar does not say what input size the model takes.");
+  if (task === "encode" && !meta.dim) {
+    throw new Error(
+      "The sidecar does not say how wide this encoder's embeddings are. Cached vectors are " +
+        "keyed by width, so re-export it with scripts/export_onnx.py rather than guessing.",
+    );
+  }
 
-  const id = `local-spatial-${slug(meta.name ?? req.onnx.name)}-${Date.now().toString(36)}`;
+  const id = `local-${task === "encode" ? "encoder" : "spatial"}-${slug(meta.name ?? req.onnx.name)}-${Date.now().toString(36)}`;
   const url = `${LOCAL_SCHEME}//${id}/model.onnx`;
   await stash(url, req.onnx);
 
   const spec: ModelSpec = {
     id,
     name: meta.name?.trim() || req.onnx.name.replace(/\.onnx$/i, ""),
-    task: "virtual-spatial",
-    blurb: meta.blurb?.trim() || `Imported from ${req.onnx.name}.`,
+    task,
+    blurb:
+      meta.blurb?.trim() ||
+      (task === "encode"
+        ? `${meta.dim}-dimensional embeddings, imported from ${req.onnx.name}.`
+        : `Imported from ${req.onnx.name}.`),
     files: [{ part: "model", url, bytes: req.onnx.size }],
     inputSize: meta.inputSize,
     mean: meta.mean ?? [0.485 * 255, 0.456 * 255, 0.406 * 255],
     std: meta.std ?? [0.229 * 255, 0.224 * 255, 0.225 * 255],
     targetMpp: meta.targetMpp ?? null,
     genes: meta.genes,
+    dim: meta.dim,
     licence: meta.licence?.trim() || "Supplied by you — check your own licence terms.",
     backend: meta.backend ?? "wasm",
   };
@@ -246,3 +268,7 @@ export async function importSpatialModel(req: SpatialImport): Promise<ModelSpec>
   await (await db()).put(STORE, spec);
   return spec;
 }
+
+
+/** Kept for the spatial dialog, which only ever imports one kind. */
+export const importSpatialModel = importSidecarModel;

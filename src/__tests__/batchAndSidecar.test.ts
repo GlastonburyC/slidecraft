@@ -96,3 +96,26 @@ describe("labels from several slides", () => {
     expect(new Set(merged.group).size).toBe(3);
   });
 });
+
+describe("model sidecars are not annotations", () => {
+  const file = (path: string): ResolvedFile =>
+    ({ path, file: new File(["{}"], path.slice(path.lastIndexOf("/") + 1)) });
+
+  /**
+   * `uni2-h.onnx.json` ends in .json and has nothing to do with a slide.
+   * Claiming it as annotations produces "no usable features", which is true
+   * and tells the user nothing about what actually went wrong.
+   */
+  it("does not pair a .onnx.json with a slide of the same stem", () => {
+    const [slide] = resolveSlides([
+      file("models/uni2-h.svs"),
+      file("models/uni2-h.onnx.json"),
+    ]);
+    expect(slide.annotations).toBe(null);
+  });
+
+  it("still pairs a real .json sidecar", () => {
+    const [slide] = resolveSlides([file("run/case.svs"), file("run/case.json")]);
+    expect(slide.annotations?.name).toBe("case.json");
+  });
+});
