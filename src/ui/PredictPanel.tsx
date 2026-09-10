@@ -58,30 +58,51 @@ export function PredictPanel({
    */
   const testRead = async () => {
     setReadTest("reading…");
-    const started = performance.now();
-    try {
-      const [x, y] = roi ? [roi.bbox[0], roi.bbox[1]] : [0, 0];
-      const result = await Promise.race([
-        meta && controller
-          ? (async () => {
-              await (controller as unknown as { source: { readRegion: (
-                x: number, y: number, l: number, w: number, h: number,
-              ) => Promise<unknown> } }).source.readRegion(x, y, 0, 224, 224);
-              return "ok";
-            })()
-          : Promise.resolve("no slide"),
-        new Promise<string>((r) => setTimeout(() => r("HUNG"), 15000)),
-      ]);
-      setReadTest(
-        result === "ok"
-          ? `read 224×224 at (${Math.round(x)}, ${Math.round(y)}) in ${Math.round(performance.now() - started)} ms — the slide layer is fine`
-          : result === "HUNG"
-            ? `the slide layer is wedged: a plain read at (${Math.round(x)}, ${Math.round(y)}) did not return in 15s`
-            : result,
-      );
-    } catch (err) {
-      setReadTest(`read failed: ${err instanceof Error ? err.message : String(err)}`);
+    const src = (controller as unknown as {
+      source: {
+        readRegion: (x: number, y: number, l: number, w: number, h: number) => Promise<unknown>;
+      };
+    } | null)?.source;
+    if (!src) {
+      setReadTest("no slide open");
+      return;
     }
+
+    /**
+     * Two reads, not one.
+     *
+     * The origin is a coordinate every slide has, so it separates "reads are
+     * broken" from "reads at these coordinates are broken" — an ROI dragged
+     * past an edge, or a bounds offset applied twice, hangs only in the second
+     * case, and the two need entirely different fixes.
+     */
+    const probes: [string, number, number][] = [["origin", 0, 0]];
+    if (roi) probes.push(["ROI", Math.round(roi.bbox[0]), Math.round(roi.bbox[1])]);
+
+    const lines: string[] = [];
+    for (const [label, x, y] of probes) {
+      const started = performance.now();
+      try {
+        const outcome = await Promise.race([
+          src.readRegion(x, y, 0, 224, 224).then(() => "ok"),
+          new Promise<string>((r) => setTimeout(() => r("hung"), 15000)),
+        ]);
+        lines.push(
+          outcome === "ok"
+            ? `${label} (${x}, ${y}): ${Math.round(performance.now() - started)} ms`
+            : `${label} (${x}, ${y}): no answer in 15s`,
+        );
+      } catch (err) {
+        lines.push(`${label} (${x}, ${y}): ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    const l0 = meta.levels[0];
+    lines.push(`slide ${l0.width}×${l0.height}, ${meta.levels.length} levels`);
+    if (meta.bounds) {
+      lines.push(`scan region from (${Math.round(meta.bounds.x)}, ${Math.round(meta.bounds.y)})`);
+    }
+    setReadTest(lines.join(" · "));
   };
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
