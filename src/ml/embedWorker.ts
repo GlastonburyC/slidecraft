@@ -148,12 +148,28 @@ function fromHalf(bits: number): number {
   return sign * Math.pow(2, exponent - 15) * (1 + fraction / 1024);
 }
 
-function widen(data: Float32Array | Uint16Array): Float32Array<ArrayBuffer> {
+/**
+ * Bring an output to float32, whatever the runtime handed back.
+ *
+ * Only a Uint16Array holds raw half bit patterns that need decoding. An fp16
+ * output may instead arrive as an array whose values are already floats, and
+ * reinterpreting those as bit patterns is catastrophic and quiet: nearly every
+ * value decodes to zero, a few to subnormals, some to NaN. The embeddings look
+ * like embeddings — right length, right count — and carry no information, so
+ * every patch clusters together and every head trained on them is noise.
+ *
+ * The type is therefore checked rather than inferred from the model's
+ * declared precision.
+ */
+function widen(data: ArrayLike<number>): Float32Array<ArrayBuffer> {
   // A fresh, unshared buffer either way: the result is transferred to the main
   // thread, and a view onto ORT's own (possibly shared) heap cannot be.
   const out = new Float32Array(data.length);
-  if (data instanceof Float32Array) out.set(data);
-  else for (let i = 0; i < data.length; i++) out[i] = fromHalf(data[i]);
+  if (data instanceof Uint16Array) {
+    for (let i = 0; i < data.length; i++) out[i] = fromHalf(data[i]);
+  } else {
+    out.set(data as ArrayLike<number> & Iterable<number>);
+  }
   return out as Float32Array<ArrayBuffer>;
 }
 
@@ -197,7 +213,20 @@ self.onmessage = async (ev: MessageEvent<Req>) => {
       // An fp16 graph answers in fp16. Everything downstream — the cache, the
       // head, the standardisation — is float32, so widen here rather than
       // letting half-precision leak into the rest of the app.
-      const copy = widen(out[session.outputNames[0]].data as Float32Array | Uint16Array);
+      const copy = widen(out[session.outputNames[0]].data as ArrayLike<number>);
+
+      // An encoder that answers with nothing is not detectable downstream: the
+      // vectors are the right shape, every patch looks identical, and the
+      // clustering and the head both quietly become noise.
+      let finite = 0;
+      for (let i = 0; i < Math.min(copy.length, 256); i++) if (Number.isFinite(copy[i]) && copy[i] !== 0) finite++;
+      if (finite === 0) {
+        throw new Error(
+          "The encoder returned all zeros or NaN. Its output type was " +
+            `${(out[session.outputNames[0]].data as object).constructor.name}, which this build ` +
+            "may be decoding wrongly — please report it.",
+        );
+      }
       post(
         { type: "embedded", id: msg.id, vectors: copy.buffer, dim, ms: performance.now() - started },
         [copy.buffer],

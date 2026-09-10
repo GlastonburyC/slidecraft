@@ -72,3 +72,48 @@ describe("half precision round trip", () => {
     for (let i = 1; i < round.length; i++) expect(round[i]).toBeGreaterThan(round[i - 1]);
   });
 });
+
+describe("widening an encoder's output", () => {
+  /**
+   * The failure this guards against produced correctly-shaped embeddings that
+   * carried no information: nearly every value zero, a few subnormals, some
+   * NaN. Every patch then looked identical, so clustering collapsed to one
+   * class and any head trained on them fitted noise — while everything
+   * downstream reported healthy counts and dimensions.
+   *
+   * Only a Uint16Array holds raw half bit patterns. An fp16 output may arrive
+   * already decoded, and reinterpreting those floats as bits is what did it.
+   */
+  function widen(data: ArrayLike<number>): Float32Array {
+    const out = new Float32Array(data.length);
+    if (data instanceof Uint16Array) {
+      for (let i = 0; i < data.length; i++) out[i] = fromHalf(data[i]);
+    } else {
+      out.set(data as ArrayLike<number> & Iterable<number>);
+    }
+    return out;
+  }
+
+  it("decodes a Uint16Array as half bit patterns", () => {
+    // 0x3C00 is 1.0 in half precision; 0x4000 is 2.0.
+    const raw = Uint16Array.from([0x3c00, 0x4000, 0xbc00]);
+    expect(Array.from(widen(raw))).toEqual([1, 2, -1]);
+  });
+
+  it("copies an already-decoded array unchanged", () => {
+    const decoded = Float32Array.from([0.234, -1.5, 12.75]);
+    const out = widen(decoded);
+    expect(out[0]).toBeCloseTo(0.234, 6);
+    expect(out[1]).toBe(-1.5);
+    expect(out[2]).toBe(12.75);
+  });
+
+  /** The exact signature of the bug: decoded floats read as bit patterns. */
+  it("does not collapse decoded floats to zeros and NaN", () => {
+    const decoded = Float32Array.from(Array.from({ length: 64 }, (_, i) => (i - 32) / 16));
+    const out = widen(decoded);
+    const informative = Array.from(out).filter((x) => Number.isFinite(x) && x !== 0).length;
+    expect(informative).toBeGreaterThan(50);
+    expect(Array.from(out).some(Number.isNaN)).toBe(false);
+  });
+});
