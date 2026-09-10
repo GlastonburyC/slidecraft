@@ -6,6 +6,8 @@
  * this size far better than IndexedDB and survives reloads.
  */
 
+import { getLocalWeights, hasLocalWeights } from "./localWeights";
+
 const CACHE_NAME = "slidecraft-models-v1";
 const TOKEN_KEY = "slidecraft.hfToken";
 
@@ -64,8 +66,14 @@ async function cache(): Promise<Cache | null> {
 /** True when every URL is already cached, so the UI can say "ready" honestly. */
 export async function isCached(urls: string[]): Promise<boolean> {
   const c = await cache();
-  if (!c) return false;
-  const hits = await Promise.all(urls.map((u) => c.match(u)));
+  const hits = await Promise.all(
+    urls.map(async (u) => {
+      // Imported weights are in OPFS, not the cache; asking the cache about
+      // them reports every local model as missing.
+      if (u.startsWith("https://local.slidecraft.invalid/")) return hasLocalWeights(u);
+      return c ? Boolean(await c.match(u)) : false;
+    }),
+  );
   return hits.every(Boolean);
 }
 
@@ -88,7 +96,14 @@ export async function fetchWeights(
   }
 
   if (url.startsWith("https://local.slidecraft.invalid/") || url.startsWith("slidecraft-local:")) {
-    // Imported weights only ever live in the cache; there is nothing to fetch.
+    // Imported weights are in OPFS, which holds files far larger than the
+    // Cache Storage API will accept. Checked after the cache above, so an
+    // import made before the move still loads.
+    const local = await getLocalWeights(url);
+    if (local) {
+      onProgress?.({ part, received: local.length, total: local.length });
+      return local;
+    }
     throw new Error(
       `The imported weights for "${part}" are no longer in local storage. ` +
         `Import the .onnx file again.`,

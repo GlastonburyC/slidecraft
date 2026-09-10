@@ -1,4 +1,5 @@
 import { openDB, type IDBPDatabase } from "idb";
+import { deleteLocalWeights, putLocalWeights } from "./localWeights";
 import type { ModelFile, ModelSpec } from "./registry";
 
 /**
@@ -96,17 +97,17 @@ const slug = (s: string) =>
   s.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "model";
 
 /** Put a File into the weight cache under a stable synthetic URL. */
+/**
+ * Weights go to OPFS, streamed.
+ *
+ * They used to go to Cache Storage like everything else, via
+ * `new Response(await file.arrayBuffer())`. That needs the whole model
+ * resident plus a copy for the write — and Cache.put fails outright on a body
+ * over a gigabyte, in Chrome with "Unexpected internal error", leaving a spec
+ * that points at weights which were never stored.
+ */
 async function stash(url: string, file: File): Promise<void> {
-  const cache = await caches.open(CACHE_NAME);
-  await cache.put(
-    url,
-    new Response(await file.arrayBuffer(), {
-      headers: {
-        "content-type": "application/octet-stream",
-        "content-length": String(file.size),
-      },
-    }),
-  );
+  await putLocalWeights(url, file);
 }
 
 export async function importLocalModel(req: ImportRequest): Promise<ModelSpec> {
@@ -175,6 +176,8 @@ export async function removeLocalModel(id: string): Promise<void> {
     const spec = (await d.get(STORE, id)) as ModelSpec | undefined;
     await d.delete(STORE, id);
     if (spec) {
+      // Weights live in OPFS now; older imports may still have a Cache entry.
+      await deleteLocalWeights(id);
       const cache = await caches.open(CACHE_NAME);
       await Promise.all(
         spec.files.filter((f) => isLocalUrl(f.url)).map((f) => cache.delete(f.url)),
