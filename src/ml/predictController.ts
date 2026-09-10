@@ -162,7 +162,13 @@ export class PredictController {
      * is worth having, but it answers a different question from "is the model
      * in memory".
      */
-    if (this.loadedId !== spec.id) await this.load(spec);
+    if (this.loadedId !== spec.id) {
+      await this.load(spec);
+      // A breath after the session is built. Creating it leaves the tab at its
+      // memory ceiling, and starting to read the slide in the same tick makes
+      // the decoder compete with a collection that has not happened yet.
+      await new Promise((r) => setTimeout(r, 250));
+    }
     const dim = spec.dim ?? (await this.load(spec));
     const slideKey = this.source.meta.name;
     const cache = await EmbeddingCache.open(
@@ -200,11 +206,19 @@ export class PredictController {
           // Checked per patch, not per batch: reading several regions off a
           // slide is itself long enough for a stop to feel ignored.
           if (this.cancelled) break;
+          const readAt = performance.now();
           const rgba = await withTimeout(
             this.source.readRegion(p.x, p.y, level, readSide, readSide),
             READ_TIMEOUT_MS,
-            `Reading patch ${p.index} at level ${level}`,
+            `Reading patch ${p.index} at level ${level}, ${readSide}px, at (${p.x}, ${p.y})`,
           );
+          const readMs = performance.now() - readAt;
+          // A read is milliseconds when nothing is competing for memory. One
+          // that takes seconds is the encoder's session squeezing the decoder,
+          // not the slide being slow, and the number is the evidence.
+          if (readMs > 1000) {
+            console.warn(`[predict] patch ${p.index} read took ${Math.round(readMs)} ms`);
+          }
           resampleTo(rgba, readSide, readSide, tiles.subarray(n * size * size * 4, (n + 1) * size * size * 4), size);
         }
 

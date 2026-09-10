@@ -260,8 +260,9 @@ describe("stopping an embedding run", () => {
     const grid = buildPatchGrid(region, 2, meta.mppX, { patchPx: 224, level: 1 });
 
     const run = c.embed(grid, { ...spec, id: "virchow2", dim: 2560, genes: undefined });
-    // Let it reach the first batch and hang there.
-    await new Promise((r) => setTimeout(r, 30));
+    // Let it load, settle, reach the first batch and hang there. The settle
+    // pause after the session is built is deliberate, so this has to outwait it.
+    await new Promise((r) => setTimeout(r, 600));
     expect(silent.embeds).toBeGreaterThan(0);
 
     c.cancel();

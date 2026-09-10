@@ -57,21 +57,38 @@ async function load(id: number, next: ModelSpec) {
   const file = next.files[0];
   if (!file) throw new Error(`${next.name} has no weights file`);
 
-  const bytes = await fetchWeights(file.url, file.part, file.bytes, (p: DownloadProgress) =>
-    post({ type: "progress", id, part: p.part, received: p.received, total: p.total }),
-  );
-
+  /**
+   * The weight buffer is scoped as tightly as possible.
+   *
+   * A ViT-H at fp16 is 1.27 GB, and creating a session copies it again — so
+   * for a moment the tab holds two and a half gigabytes for one model, against
+   * a heap limit around four. Everything else in the page is competing for
+   * what is left, including the slide decoder's own allocations, and a read
+   * that normally takes four milliseconds can be starved for minutes. Letting
+   * the bytes go the instant the session exists is the cheapest thing that
+   * shortens that window.
+   */
   const wanted = next.backend === "wasm" ? ["wasm"] : ["webgpu", "wasm"];
   let backend = "";
   let lastError: unknown = null;
-  for (const ep of wanted) {
-    try {
-      session = await ort.InferenceSession.create(bytes, { executionProviders: [ep] });
-      backend = ep;
-      break;
-    } catch (err) {
-      lastError = err;
+  {
+    let bytes: Uint8Array | null = await fetchWeights(
+      file.url,
+      file.part,
+      file.bytes,
+      (p: DownloadProgress) =>
+        post({ type: "progress", id, part: p.part, received: p.received, total: p.total }),
+    );
+    for (const ep of wanted) {
+      try {
+        session = await ort.InferenceSession.create(bytes, { executionProviders: [ep] });
+        backend = ep;
+        break;
+      } catch (err) {
+        lastError = err;
+      }
     }
+    bytes = null;
   }
   if (!session) {
     throw new Error(
