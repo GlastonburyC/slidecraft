@@ -21,6 +21,7 @@ import { TissueModelPanel } from "./TissueModelPanel";
 import { SegmentPanel } from "./SegmentPanel";
 import type { SegmentController } from "../ml/segmentController";
 import { useAnnotations } from "../annotate/store";
+import { ROI_CLASS_ID } from "../annotate/types";
 import { loadDocument, saveDocument, slideKeyOf } from "../io/persistence";
 import { getRememberAnnotations, setRememberAnnotations } from "../io/prefs";
 import { matchesSlide, parseExpressionFile } from "../io/expressionFile";
@@ -380,6 +381,35 @@ export function App() {
       setPredictor(null);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source]);
+
+  /**
+   * A prediction belongs to the regions it was computed over.
+   *
+   * It is drawn from its own result rather than from annotations, so deleting
+   * the objects leaves the colours on the slide with nothing left that
+   * explains them — and no obvious way to be rid of them. When the regions it
+   * covered are gone, so is it.
+   */
+  useEffect(() => {
+    if (!source) return;
+    return useAnnotations.subscribe((state, prev) => {
+      if (state.version === prev.version) return;
+      const pred = usePredict.getState();
+      if (!pred.prediction && !pred.grid) return;
+
+      const alive = [...state.items.values()];
+      const anyRoi = alive.some((a) => a.classId === ROI_CLASS_ID);
+      const anyTissue = alive.some((a) => {
+        const cls = state.classes.find((c) => c.id === a.classId);
+        return cls?.name.toLowerCase() === "tissue";
+      });
+      if (!anyRoi && !anyTissue) {
+        pred.setPrediction(null);
+        pred.setHead(null);
+        pred.setVectors(null, 0, null);
+      }
+    });
   }, [source]);
 
   // Autosave, debounced so a brush stroke does not thrash IndexedDB.

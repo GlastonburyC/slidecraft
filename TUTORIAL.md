@@ -213,7 +213,10 @@ tokens, which its plain forward pass does not return. Import the `.onnx` under
 
 ### The loop
 
-1. Draw an ROI with <kbd>O</kbd>.
+1. Choose what to cover. Draw an ROI with <kbd>O</kbd>, or — if you have run
+   **Detect tissue** — switch to **All tissue** and patch every detected
+   fragment without drawing anything. Each fragment stays its own region, so
+   the head is validated on fragments it was not trained on.
 2. **Embed this ROI.** This is the only step that touches pixels, and it is
    cached — re-embedding the same ROI is instant, and an overlapping one only
    encodes what is new.
@@ -223,6 +226,10 @@ tokens, which its plain forward pass does not return. Import the `.onnx` under
    patch by class.
 5. Disagree with it — draw over what it got wrong — and **Retrain**. Because the
    embeddings are cached, this is immediate. That is the point.
+
+**Clear the prediction** takes the overlay off the slide. It is a result rather
+than an annotation, so it is not removed by deleting objects — though deleting
+every ROI and tissue region does clear it, since it no longer covers anything.
 
 **Confidence** leaves unsure patches uncoloured rather than showing them with
 certainty the head does not have. **Showing** switches between the most likely

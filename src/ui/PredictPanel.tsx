@@ -49,6 +49,7 @@ export function PredictPanel({
   const [k, setK] = useState(6);
   /** Stride as a fraction of the patch: 1 is no overlap, 1/2 is half a patch. */
   const [strideFraction, setStrideFraction] = useState(1);
+  const [scope, setScope] = useState<"roi" | "tissue">("roi");
   const [discovered, setDiscovered] = useState<{ clusters: number; sizes: number[] } | null>(null);
   const [readTest, setReadTest] = useState<string | null>(null);
 
@@ -126,6 +127,28 @@ export function PredictPanel({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version, selection, items, picked.roi]);
   const roi = rois[0] ?? null;
+
+  /**
+   * Detected tissue as regions to patch.
+   *
+   * Drawing ROIs by hand to cover a slide you have already segmented is work
+   * the app has done once. Each fragment stays its own region rather than
+   * being merged, because separate fragments are exactly the natural unit for
+   * holding one out — a head that transfers between two pieces of the same
+   * section has shown something a head validated within one has not.
+   */
+  const tissue = useMemo(() => {
+    const cls = classes.find((c) => c.name.toLowerCase() === "tissue");
+    if (!cls) return [];
+    return [...items.values()].filter(
+      (a) =>
+        a.classId === cls.id &&
+        (a.geometry.type === "Polygon" || a.geometry.type === "MultiPolygon"),
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [version, items, classes]);
+
+  const regions = scope === "tissue" ? tissue : rois;
   const spec = findModel(encoders, encoderId ?? "");
 
   /**
@@ -159,19 +182,19 @@ export function PredictPanel({
    * between a considered choice and an accident.
    */
   const estimatedPatches = useMemo(() => {
-    if (rois.length === 0 || !spec) return null;
+    if (regions.length === 0 || !spec) return null;
     const level = levelForMpp(meta, spec.targetMpp);
     const downsample = meta.levels[level]?.downsample ?? 1;
     const side = patchPx * downsample;
     const step = Math.max(1, Math.round(patchPx * strideFraction)) * downsample;
-    return rois.reduce((total, r) => {
+    return regions.reduce((total, r) => {
       const w = r.bbox[2] - r.bbox[0];
       const h = r.bbox[3] - r.bbox[1];
       const cols = Math.max(0, Math.floor((w - side) / step) + 1);
       const rows = Math.max(0, Math.floor((h - side) / step) + 1);
       return total + cols * rows;
     }, 0);
-  }, [rois, spec, meta, patchPx, strideFraction]);
+  }, [regions, spec, meta, patchPx, strideFraction]);
 
   /** Measured from the last run, so the estimate is this machine's, not a guess. */
   const perPatchMs = useMemo(() => {
@@ -181,10 +204,10 @@ export function PredictPanel({
   }, [embedded]);
 
   const embed = async () => {
-    if (!controller || !spec || rois.length === 0) return;
+    if (!controller || !spec || regions.length === 0) return;
     const level = levelForMpp(meta, spec.targetMpp);
     const downsample = meta.levels[level]?.downsample ?? 1;
-    const grids = rois.map((r) => {
+    const grids = regions.map((r) => {
       const [minX, minY, maxX, maxY] = r.bbox;
       return {
         roiId: r.id,
@@ -264,6 +287,28 @@ export function PredictPanel({
             </div>
           ))}
 
+          <div className="seg-choice">
+            <button className="seg" aria-pressed={scope === "roi"} onClick={() => setScope("roi")}>
+              Selected ROIs
+            </button>
+            <button
+              className="seg"
+              aria-pressed={scope === "tissue"}
+              onClick={() => setScope("tissue")}
+              disabled={tissue.length === 0}
+              title={
+                tissue.length === 0
+                  ? "Run Detect tissue first"
+                  : "Patch every detected tissue fragment"
+              }
+            >
+              All tissue{tissue.length > 0 ? ` (${tissue.length})` : ""}
+            </button>
+          </div>
+          {scope === "tissue" && tissue.length === 0 && (
+            <div className="hint">Run <b>Detect tissue</b> first, in the Tissue tab.</div>
+          )}
+
           <label className="field">
             <span>Patch</span>
             <select value={patchPx} onChange={(e) => setPatchPx(Number(e.target.value))} disabled={busy}>
@@ -313,9 +358,14 @@ export function PredictPanel({
             </div>
           )}
 
-          {rois.length > 1 ? (
+          {scope === "tissue" ? (
             <div className="hint">
-              {rois.length} ROIs selected — the head will be validated on regions it was not
+              {tissue.length} tissue fragment{tissue.length === 1 ? "" : "s"} — each is its own
+              region, so the head is validated on fragments it was not trained on.
+            </div>
+          ) : regions.length > 1 ? (
+            <div className="hint">
+              {regions.length} ROIs selected — the head will be validated on regions it was not
               trained on, which is the only split that shows whether it transfers.
             </div>
           ) : (
@@ -325,7 +375,7 @@ export function PredictPanel({
           <button
             className="btn"
             style={{ width: "100%" }}
-            disabled={busy || rois.length === 0 || !spec}
+            disabled={busy || regions.length === 0 || !spec}
             onClick={() => void embed()}
           >
             {status === "loading"
@@ -333,8 +383,8 @@ export function PredictPanel({
               : status === "embedding"
                 ? "Embedding…"
                 : vectors
-                  ? `Re-embed ${rois.length > 1 ? `${rois.length} ROIs` : "this ROI"}`
-                  : `Embed ${rois.length > 1 ? `${rois.length} ROIs` : "this ROI"}`}
+                  ? `Re-embed ${describeScope(scope, regions.length)}`
+                  : `Embed ${describeScope(scope, regions.length)}`}
           </button>
 
           {backend && (
@@ -580,6 +630,16 @@ export function PredictPanel({
             <input type="checkbox" checked={visible} onChange={(e) => setVisible(e.target.checked)} />
             Show the prediction
           </label>
+          <button
+            className="btn"
+            style={{ width: "100%" }}
+            onClick={() => {
+              usePredict.getState().setPrediction(null);
+              usePredict.getState().setHead(null);
+            }}
+          >
+            Clear the prediction
+          </button>
 
           <div className="picker-hint">
             Disagree with it? Draw over what it got wrong, then <b>Retrain</b> — the embeddings are
@@ -598,6 +658,11 @@ function swatch(classes: { id: string; color: [number, number, number] }[], id: 
 
 /** Pyramid level nearest a target µm/pixel; finer wins a tie. */
 /** Seconds as something a person can act on, not a raw count. */
+function describeScope(scope: "roi" | "tissue", count: number): string {
+  if (scope === "tissue") return `${count} tissue fragment${count === 1 ? "" : "s"}`;
+  return count > 1 ? `${count} ROIs` : "this ROI";
+}
+
 function formatDuration(seconds: number): string {
   if (seconds < 90) return `${Math.round(seconds)}s`;
   if (seconds < 5400) return `${Math.round(seconds / 60)} min`;
