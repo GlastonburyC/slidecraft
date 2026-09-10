@@ -228,6 +228,22 @@ tokens, which its plain forward pass does not return. Import the `.onnx` under
 certainty the head does not have. **Showing** switches between the most likely
 class and one class at a time, where opacity carries the probability.
 
+### Finer than a patch
+
+The encoder's input is fixed at 224 px, but the patch can slide by less than
+its own width. Set **Stride** to a half or a quarter and each point of tissue
+is seen by four or sixteen patches, each from a different offset; averaging
+them gives a map at the stride's resolution rather than the patch's.
+
+The average is weighted by a raised cosine centred on each patch — a patch
+describes its middle better than its corners, where the field is as much about
+the neighbouring tissue. That sharpens boundaries and removes the blocky seams
+uniform averaging leaves at patch edges.
+
+It costs what it sounds like: a half stride is 4× the encoding, a quarter is
+16×. Worth it on a small ROI where the boundary matters, rarely worth it on a
+whole slide.
+
 ### Reading the score
 
 The held-out accuracy is measured on whole **spatial blocks** the head never

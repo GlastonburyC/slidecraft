@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { Blend } from "./blend";
 import type { PatchGrid } from "./patchGrid";
 import type { ModelSpec } from "./registry";
 import type { Head } from "./head";
@@ -15,6 +16,12 @@ export interface Prediction {
   classes: string[];
   classIds: string[];
   ms: number;
+  /**
+   * The same probabilities resampled onto the stride's grid, when patches
+   * overlap. Present only when there is something to blend — at full stride
+   * each patch stands alone and the raster would just be the patches again.
+   */
+  blend?: Blend | null;
 }
 
 interface PredictState {

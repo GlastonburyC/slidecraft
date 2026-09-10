@@ -47,6 +47,8 @@ export function PredictPanel({
   const [patchPx, setPatchPx] = useState(224);
   const [importing, setImporting] = useState(false);
   const [k, setK] = useState(6);
+  /** Stride as a fraction of the patch: 1 is no overlap, 1/2 is half a patch. */
+  const [strideFraction, setStrideFraction] = useState(1);
   const [discovered, setDiscovered] = useState<{ clusters: number; sizes: number[] } | null>(null);
   const [readTest, setReadTest] = useState<string | null>(null);
 
@@ -163,7 +165,13 @@ export function PredictPanel({
           meta.mppX,
           // Clipped to the ROI itself, so a lassoed region is not patched over
           // its bounding box.
-          { patchPx, level, within: [r], bounds: meta.bounds },
+          {
+            patchPx,
+            stridePx: Math.max(1, Math.round(patchPx * strideFraction)),
+            level,
+            within: [r],
+            bounds: meta.bounds,
+          },
         ),
       };
     });
@@ -235,6 +243,26 @@ export function PredictPanel({
               ))}
             </select>
           </label>
+
+          <label className="field">
+            <span>Stride</span>
+            <select
+              value={strideFraction}
+              onChange={(e) => setStrideFraction(Number(e.target.value))}
+              disabled={busy}
+            >
+              <option value={1}>whole patch — no overlap</option>
+              <option value={0.5}>half — 4× the patches</option>
+              <option value={0.25}>quarter — 16× the patches</option>
+            </select>
+          </label>
+          {strideFraction < 1 && (
+            <div className="picker-hint">
+              Overlapping patches see each point of tissue from several offsets, and averaging
+              them gives a map at {Math.round(patchPx * strideFraction)} px rather than {patchPx}.
+              It costs {Math.round(1 / (strideFraction * strideFraction))}× the encoding.
+            </div>
+          )}
 
           {rois.length > 1 ? (
             <div className="hint">

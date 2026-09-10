@@ -403,7 +403,68 @@ export class AnnotationOverlay {
       }
     }
 
-    if (pred.visible && pred.prediction && state.showAnnotations) {
+    /**
+     * A blended prediction is drawn at the stride's resolution, not the
+     * patch's. Overlapping patches each judge a point of tissue from a
+     * different offset, so the average is finer than any one of them — and
+     * drawing the patches instead would throw that away, since the last square
+     * painted would simply cover the rest.
+     */
+    const blend = pred.prediction?.blend ?? null;
+    if (pred.visible && blend && state.showAnnotations) {
+      const { classes, classIds } = pred.prediction!;
+      const n = blend.classes;
+      const alpha = Math.round(255 * pred.opacity);
+      const shown = pred.shownClass ? classes.indexOf(pred.shownClass) : -1;
+      const palette = classes.map((_, k) => {
+        const cls = state.classes.find((c) => c.id === classIds[k]);
+        return cls ? cls.color : ([150, 150, 160] as [number, number, number]);
+      });
+
+      if (blend.cell * pxPerSlidePx > 1) {
+        layers.push(
+          new PolygonLayer<{ i: number }>({
+            id: `blend-${pred.prediction!.ms}-${pred.shownClass ?? "argmax"}`,
+            data: Array.from({ length: blend.cols * blend.rows }, (_, i) => ({ i })),
+            getPolygon: (d) => {
+              const c = d.i % blend.cols;
+              const r = (d.i - c) / blend.cols;
+              const x = blend.originX + c * blend.cell;
+              const y = blend.originY + r * blend.cell;
+              return [[
+                [x, y],
+                [x + blend.cell, y],
+                [x + blend.cell, y + blend.cell],
+                [x, y + blend.cell],
+              ]];
+            },
+            getFillColor: (d) => {
+              const base = d.i * n;
+              let total = 0;
+              for (let k = 0; k < n; k++) total += blend.probs[base + k];
+              // Nothing covered this cell; leave it rather than guess.
+              if (total <= 0) return [0, 0, 0, 0];
+              if (shown >= 0) {
+                const p = blend.probs[base + shown];
+                if (p < pred.threshold) return [0, 0, 0, 0];
+                const [r2, g2, b2] = palette[shown];
+                return [r2, g2, b2, Math.round(alpha * p)];
+              }
+              let best = 0;
+              for (let k = 1; k < n; k++) if (blend.probs[base + k] > blend.probs[base + best]) best = k;
+              if (blend.probs[base + best] < pred.threshold) return [0, 0, 0, 0];
+              const [r2, g2, b2] = palette[best];
+              return [r2, g2, b2, alpha];
+            },
+            filled: true,
+            stroked: false,
+            updateTriggers: {
+              getFillColor: `${pred.shownClass}|${pred.opacity}|${pred.threshold}|${state.version}`,
+            },
+          }),
+        );
+      }
+    } else if (pred.visible && pred.prediction && state.showAnnotations) {
       const { probs, grid, classes, classIds } = pred.prediction;
       const n = classes.length;
       const side = grid.patchPx * grid.downsample;

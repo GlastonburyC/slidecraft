@@ -52,6 +52,8 @@ export interface PatchGrid {
   /** Side of one patch in µm, when the slide reports a scale. */
   patchUm: number | null;
   patchPx: number;
+  /** Step between patch origins, in level pixels. Equal to patchPx when they do not overlap. */
+  stridePx: number;
   level: number;
   downsample: number;
 }
@@ -134,6 +136,7 @@ export function buildPatchGrid(
     rows,
     patchUm: mppX ? patchPx * downsample * mppX : null,
     patchPx,
+    stridePx,
     level,
     downsample,
   };

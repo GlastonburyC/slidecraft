@@ -4,6 +4,7 @@ import { EmbeddingCache } from "./embeddingCache";
 import type { Res } from "./embedWorker";
 import { makeAnnotation } from "../annotate/store";
 import { predict, trainHead, type Head, type LabelledSet } from "./head";
+import { blendPredictions } from "./blend";
 import { kmeans } from "./kmeans";
 import { pca } from "./pca";
 import { patchKey, type PatchGrid } from "./patchGrid";
@@ -467,12 +468,20 @@ export class PredictController {
       probs.set(scratch, i * nClasses);
     }
 
+    // Overlapping patches carry finer information than their own size, and
+    // averaging them is what recovers it.
+    const side = Math.round(grid.patchPx * grid.downsample);
+    const stride = Math.round((grid.stridePx ?? grid.patchPx) * grid.downsample);
     const prediction: Prediction = {
       probs,
       grid,
       classes: classes.map((c) => c.name),
       classIds: classes.map((c) => c.classId),
       ms: performance.now() - started,
+      blend:
+        stride < side
+          ? blendPredictions(grid.patches, probs, nClasses, side, stride)
+          : null,
     };
     store.setHead(head);
     store.setPrediction(prediction);
