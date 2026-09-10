@@ -39,7 +39,7 @@ export function PredictPanel({
 
   const {
     encoders, encoderId, setEncoder, setEncoders, status, error, download, backend,
-    embedded, vectors, grid, head, prediction,
+    embedded, vectors, grid, head, prediction, pcs, roiIds,
     shownClass, setShownClass, opacity, setOpacity, visible, setVisible,
     threshold, setThreshold,
   } = usePredict();
@@ -107,7 +107,21 @@ export function PredictPanel({
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const picked = useMemo(() => pickRoi(items, selection), [version, selection, items]);
-  const roi = picked.roi;
+
+  /**
+   * Every selected ROI, so a head can be trained on one region and validated
+   * on another. Falls back to the single ROI the picker finds, which is what
+   * happens when nothing is selected and there is only one.
+   */
+  const rois = useMemo(() => {
+    const chosen = [...selection]
+      .map((id) => items.get(id))
+      .filter((a): a is NonNullable<typeof a> => !!a && a.classId === ROI_CLASS_ID);
+    if (chosen.length > 0) return chosen;
+    return picked.roi ? [picked.roi] : [];
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [version, selection, items, picked.roi]);
+  const roi = rois[0] ?? null;
   const spec = findModel(encoders, encoderId ?? "");
 
   /**
@@ -134,17 +148,24 @@ export function PredictPanel({
   const busy = status === "loading" || status === "embedding" || status === "training";
 
   const embed = async () => {
-    if (!controller || !spec || !roi) return;
+    if (!controller || !spec || rois.length === 0) return;
     const level = levelForMpp(meta, spec.targetMpp);
     const downsample = meta.levels[level]?.downsample ?? 1;
-    const [minX, minY, maxX, maxY] = roi.bbox;
-    const built = buildPatchGrid(
-      { x: minX, y: minY, width: maxX - minX, height: maxY - minY },
-      downsample,
-      meta.mppX,
-      { patchPx, level, within: [roi], bounds: meta.bounds },
-    );
-    await controller.embed(built, spec);
+    const grids = rois.map((r) => {
+      const [minX, minY, maxX, maxY] = r.bbox;
+      return {
+        roiId: r.id,
+        grid: buildPatchGrid(
+          { x: minX, y: minY, width: maxX - minX, height: maxY - minY },
+          downsample,
+          meta.mppX,
+          // Clipped to the ROI itself, so a lassoed region is not patched over
+          // its bounding box.
+          { patchPx, level, within: [r], bounds: meta.bounds },
+        ),
+      };
+    });
+    await controller.embedAll(grids, spec);
   };
 
   return (
@@ -213,12 +234,19 @@ export function PredictPanel({
             </select>
           </label>
 
-          {roiHint(picked.total, roi) && <div className="hint">{roiHint(picked.total, roi)}</div>}
+          {rois.length > 1 ? (
+            <div className="hint">
+              {rois.length} ROIs selected — the head will be validated on regions it was not
+              trained on, which is the only split that shows whether it transfers.
+            </div>
+          ) : (
+            roiHint(picked.total, roi) && <div className="hint">{roiHint(picked.total, roi)}</div>
+          )}
 
           <button
             className="btn"
             style={{ width: "100%" }}
-            disabled={busy || !roi || !spec}
+            disabled={busy || rois.length === 0 || !spec}
             onClick={() => void embed()}
           >
             {status === "loading"
@@ -226,8 +254,8 @@ export function PredictPanel({
               : status === "embedding"
                 ? "Embedding…"
                 : vectors
-                  ? "Re-embed this ROI"
-                  : "Embed this ROI"}
+                  ? `Re-embed ${rois.length > 1 ? `${rois.length} ROIs` : "this ROI"}`
+                  : `Embed ${rois.length > 1 ? `${rois.length} ROIs` : "this ROI"}`}
           </button>
 
           {backend && (
@@ -286,7 +314,18 @@ export function PredictPanel({
           <div className="ctx-sep" />
           <dl className="kv">
             <dt>Embedded</dt>
-            <dd>{grid.patches.length.toLocaleString()} patches</dd>
+            <dd>
+              {grid.patches.length.toLocaleString()} patches
+              {roiIds.length > 1 && ` · ${roiIds.length} ROIs`}
+            </dd>
+            {pcs > 0 && (
+              <>
+                <dt>Components</dt>
+                <dd title="The head is fitted on principal components, not the raw embedding width">
+                  {pcs} of {usePredict.getState().dim}
+                </dd>
+              </>
+            )}
             {backend && (
               <>
                 <dt>Runtime</dt>

@@ -3,6 +3,7 @@ import type { SlideSource } from "../slide/types";
 import { EmbeddingCache } from "./embeddingCache";
 import type { Res } from "./embedWorker";
 import { predict, trainHead, type Head, type LabelledSet } from "./head";
+import { pca } from "./pca";
 import { patchKey, type PatchGrid } from "./patchGrid";
 import { labelPatches } from "./patchLabels";
 import { usePredict, type Prediction } from "./predictStore";
@@ -152,6 +153,38 @@ export class PredictController {
    * is genuinely new. That is the difference between iterating on an ROI and
    * waiting for it each time.
    */
+  /**
+   * Embed several ROIs as one set.
+   *
+   * Regions are the natural unit for validation: training on one and testing
+   * on another asks whether the head transfers to tissue it has not seen,
+   * which holding out squares within a single region cannot. The patches are
+   * pooled here and their origin remembered.
+   */
+  async embedAll(
+    grids: { roiId: string; grid: PatchGrid }[],
+    spec: ModelSpec,
+  ): Promise<Float32Array | null> {
+    if (grids.length === 0) return null;
+    const first = grids[0].grid;
+    const patches = grids.flatMap((g) => g.grid.patches);
+    const roiOf = new Int32Array(patches.length);
+    let at = 0;
+    grids.forEach((g, r) => {
+      for (let i = 0; i < g.grid.patches.length; i++) roiOf[at++] = r;
+    });
+
+    // Renumbered so a patch's index is its row, whichever ROI it came from.
+    const merged: PatchGrid = {
+      ...first,
+      patches: patches.map((p, i) => ({ ...p, index: i })),
+      cols: first.cols,
+      rows: Math.ceil(patches.length / Math.max(1, first.cols)),
+    };
+    usePredict.getState().setPatchRoi(roiOf, grids.map((g) => g.roiId));
+    return this.embed(merged, spec);
+  }
+
   async embed(grid: PatchGrid, spec: ModelSpec): Promise<Float32Array | null> {
     const store = usePredict.getState();
     this.cancelled = false;
@@ -351,12 +384,17 @@ export class PredictController {
     }
 
     const index = new Map(grid.patches.map((p, i) => [p.index, i]));
+    const patchRoi = store.patchRoi;
     const set: LabelledSet = {
       x: new Float32Array(labelled.length * dim),
       dim,
       y: new Uint8Array(labelled.length),
       px: new Float64Array(labelled.length),
       py: new Float64Array(labelled.length),
+      // Only when there is more than one ROI; with one, geography is all there
+      // is to split on.
+      block:
+        patchRoi && store.roiIds.length > 1 ? new Int32Array(labelled.length) : undefined,
       count: labelled.length,
     };
     labelled.forEach((l, i) => {
@@ -365,13 +403,52 @@ export class PredictController {
       set.y[i] = l.label;
       set.px[i] = l.patch.x;
       set.py[i] = l.patch.y;
+      if (set.block && patchRoi) set.block[i] = patchRoi[row];
     });
 
     store.setStatus("training");
     const started = performance.now();
+
+    /**
+     * Components, computed once and reused by every retrain.
+     *
+     * This is the step that makes the fit well posed. It is also why
+     * correcting and retraining stays instant: the expensive part is the
+     * decomposition, and it does not depend on the labels.
+     */
+    let scores = store.scores;
+    let pcs = store.pcs;
+    if (!scores) {
+      const wanted = Math.min(50, Math.max(2, Math.floor(grid.patches.length / 3)));
+      const result = pca(vectors, grid.patches.length, dim, wanted);
+      scores = result.scores;
+      pcs = result.k;
+      store.setScores(scores, pcs);
+    }
+
+    const projected: LabelledSet = {
+      x: new Float32Array(labelled.length * pcs),
+      dim: pcs,
+      y: set.y,
+      px: set.px,
+      py: set.py,
+      block: set.block,
+      count: labelled.length,
+    };
+    labelled.forEach((l, i) => {
+      const row = index.get(l.patch.index)!;
+      projected.x.set(scores!.subarray(row * pcs, (row + 1) * pcs), i * pcs);
+    });
+
     let head: Head;
     try {
-      head = trainHead(set, classes.map((c) => c.name), store.encoderId ?? "unknown", blockPx);
+      head = trainHead(
+        projected,
+        classes.map((c) => c.name),
+        store.encoderId ?? "unknown",
+        blockPx,
+        { x: scores, n: grid.patches.length },
+      );
     } catch (err) {
       store.setStatus("error", err instanceof Error ? err.message : String(err));
       return null;
@@ -381,7 +458,7 @@ export class PredictController {
     const probs = new Float32Array(grid.patches.length * nClasses);
     const scratch = new Float32Array(nClasses);
     for (let i = 0; i < grid.patches.length; i++) {
-      predict(head, vectors.subarray(i * dim, (i + 1) * dim), scratch);
+      predict(head, scores.subarray(i * pcs, (i + 1) * pcs), scratch);
       probs.set(scratch, i * nClasses);
     }
 

@@ -138,3 +138,74 @@ describe("spatial blocks", () => {
     expect(blockOf(4096, 2048, 2048)).toBe("2,1");
   });
 });
+
+describe("a head fitted on far more dimensions than samples", () => {
+  const noise = (i: number, j: number) => {
+    let n = (i * 374761393 + j * 668265263) >>> 0;
+    n = ((n ^ (n >>> 13)) * 1274126177) >>> 0;
+    return ((n >>> 16) & 2047) / 2047 - 0.5;
+  };
+
+  /** A foundation model's width against a first pass at annotating. */
+  function wide(dim: number, total: number, labelled: number, signal: number) {
+    const all = new Float32Array(total * dim);
+    const truth = new Int32Array(total);
+    for (let i = 0; i < total; i++) {
+      truth[i] = i % 2;
+      for (let f = 0; f < dim; f++) {
+        all[i * dim + f] = (f < 60 && truth[i] === 1 ? signal : 0) + noise(i, f) * 2;
+      }
+    }
+    const idx = Array.from({ length: labelled }, (_, i) => i);
+    const set: LabelledSet = {
+      x: new Float32Array(labelled * dim), dim,
+      y: Uint8Array.from(idx.map((i) => truth[i])),
+      px: Float64Array.from(idx.map((i) => (i % 4) * 4096)),
+      py: Float64Array.from(idx.map((i) => Math.floor(i / 4) * 4096)),
+      count: labelled,
+    };
+    idx.forEach((i, r) => set.x.set(all.subarray(i * dim, (i + 1) * dim), r * dim));
+    return { all, truth, set };
+  }
+
+  /**
+   * The failure this guards against was silent and total: predictions came out
+   * exactly inverted, because the weight penalty was applied without the
+   * learning rate and so exceeded the weight itself each step, flipping its
+   * sign every iteration.
+   */
+  it("learns the right way round", () => {
+    const { all, truth, set } = wide(512, 120, 24, 1.5);
+    const head = trainHead(set, ["a", "b"], "enc", 4096, { x: all, n: 120 });
+
+    let correct = 0;
+    for (let i = 0; i < 120; i++) {
+      const p = predict(head, all.subarray(i * 512, (i + 1) * 512));
+      if ((p[0] >= p[1] ? 0 : 1) === truth[i]) correct++;
+    }
+    // Anything near zero means inverted, which is the bug; near 0.5 means it
+    // learned nothing. A real signal must come out well above both.
+    expect(correct / 120).toBeGreaterThan(0.9);
+  });
+
+  it("standardises on the whole population, not just what was labelled", () => {
+    const { all, set } = wide(256, 120, 20, 1.5);
+    // Labels come from the first twenty patches only; the statistics must
+    // still describe all 120, or everything outside them saturates.
+    const head = trainHead(set, ["a", "b"], "enc", 4096, { x: all, n: 120 });
+
+    const populationMean = new Float64Array(256);
+    for (let i = 0; i < 120; i++) for (let f = 0; f < 256; f++) populationMean[f] += all[i * 256 + f];
+    for (let f = 0; f < 256; f++) populationMean[f] /= 120;
+    for (let f = 0; f < 256; f++) expect(head.mean[f]).toBeCloseTo(populationMean[f], 4);
+  });
+
+  it("holds out whole groups when it is given them", () => {
+    const { all, set } = wide(128, 160, 60, 1.5);
+    // Three ROIs rather than a grid of blocks.
+    set.block = Int32Array.from({ length: set.count }, (_, i) => i % 3);
+    const head = trainHead(set, ["a", "b"], "enc", 4096, { x: all, n: 160 });
+    expect(head.metrics).not.toBe(null);
+    expect(head.metrics!.blocks).toBeGreaterThan(0);
+  });
+});

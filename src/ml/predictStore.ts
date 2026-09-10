@@ -37,6 +37,20 @@ interface PredictState {
   vectors: Float32Array | null;
   dim: number;
   grid: PatchGrid | null;
+  /**
+   * Principal components of those vectors, and the head is fitted on these.
+   *
+   * An encoder gives 1536 or 2560 numbers per patch and a first pass at
+   * annotating gives a few dozen labels; a linear head on the raw width
+   * separates them perfectly and generalises at chance, while reporting near
+   * certainty. Components keep the structure and drop the ratio to something
+   * a head can actually be fitted on.
+   */
+  scores: Float32Array | null;
+  pcs: number;
+  /** Which ROI each patch came from, so validation can hold whole ROIs out. */
+  patchRoi: Int32Array | null;
+  roiIds: string[];
   head: Head | null;
   prediction: Prediction | null;
   /** Class shown; null means the most likely class per patch. */
@@ -53,6 +67,8 @@ interface PredictState {
   setBackend: (b: string | null) => void;
   setEmbedded: (e: PredictState["embedded"]) => void;
   setVectors: (v: Float32Array | null, dim: number, grid: PatchGrid | null) => void;
+  setScores: (s: Float32Array | null, pcs: number) => void;
+  setPatchRoi: (r: Int32Array | null, ids: string[]) => void;
   setHead: (h: Head | null) => void;
   setPrediction: (p: Prediction | null) => void;
   setShownClass: (c: string | null) => void;
@@ -73,6 +89,10 @@ export const usePredict = create<PredictState>((set) => ({
   vectors: null,
   dim: 0,
   grid: null,
+  scores: null,
+  pcs: 0,
+  patchRoi: null,
+  roiIds: [],
   head: null,
   prediction: null,
   shownClass: null,
@@ -93,7 +113,9 @@ export const usePredict = create<PredictState>((set) => ({
   setDownload: (download) => set({ download }),
   setBackend: (backend) => set({ backend }),
   setEmbedded: (embedded) => set({ embedded }),
-  setVectors: (vectors, dim, grid) => set({ vectors, dim, grid }),
+  setVectors: (vectors, dim, grid) => set({ vectors, dim, grid, scores: null, pcs: 0 }),
+  setScores: (scores, pcs) => set({ scores, pcs }),
+  setPatchRoi: (patchRoi, roiIds) => set({ patchRoi, roiIds }),
   setHead: (head) => set({ head }),
   setPrediction: (prediction) => set({ prediction }),
   setShownClass: (shownClass) => set({ shownClass }),
@@ -104,5 +126,6 @@ export const usePredict = create<PredictState>((set) => ({
     set({
       status: "idle", error: null, embedded: null, vectors: null, dim: 0,
       grid: null, head: null, prediction: null, shownClass: null,
+      scores: null, pcs: 0, patchRoi: null, roiIds: [],
     }),
 }));
