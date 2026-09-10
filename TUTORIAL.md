@@ -240,9 +240,15 @@ describes its middle better than its corners, where the field is as much about
 the neighbouring tissue. That sharpens boundaries and removes the blocky seams
 uniform averaging leaves at patch edges.
 
-It costs what it sounds like: a half stride is 4× the encoding, a quarter is
-16×. Worth it on a small ROI where the boundary matters, rarely worth it on a
-whole slide.
+Eighth and sixteenth strides are there too, at 64× and 256×. The panel
+estimates the patch count and, once you have run once, the time on your own
+machine — a multiplier is abstract, twenty minutes is not.
+
+Past a quarter the gain is mostly smoothing rather than detail. The encoder
+still judges 224 px at a time whatever the stride, so patches offset by 14 px
+see almost the same field and increasingly agree; what improves is the
+smoothness of the boundary, not the information behind it. Worth it on a small
+ROI where a boundary matters, rarely worth it across a whole slide.
 
 ### Reading the score
 

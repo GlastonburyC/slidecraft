@@ -151,6 +151,35 @@ export function PredictPanel({
 
   const busy = status === "loading" || status === "embedding" || status === "training";
 
+  /**
+   * What this stride will actually cost here.
+   *
+   * A multiplier is abstract; the number of patches and the minutes are not,
+   * and at a sixteenth stride the difference between the two is the difference
+   * between a considered choice and an accident.
+   */
+  const estimatedPatches = useMemo(() => {
+    if (rois.length === 0 || !spec) return null;
+    const level = levelForMpp(meta, spec.targetMpp);
+    const downsample = meta.levels[level]?.downsample ?? 1;
+    const side = patchPx * downsample;
+    const step = Math.max(1, Math.round(patchPx * strideFraction)) * downsample;
+    return rois.reduce((total, r) => {
+      const w = r.bbox[2] - r.bbox[0];
+      const h = r.bbox[3] - r.bbox[1];
+      const cols = Math.max(0, Math.floor((w - side) / step) + 1);
+      const rows = Math.max(0, Math.floor((h - side) / step) + 1);
+      return total + cols * rows;
+    }, 0);
+  }, [rois, spec, meta, patchPx, strideFraction]);
+
+  /** Measured from the last run, so the estimate is this machine's, not a guess. */
+  const perPatchMs = useMemo(() => {
+    if (!embedded || embedded.ms <= 0) return null;
+    const done = embedded.done - embedded.cached;
+    return done > 0 ? embedded.ms / done : null;
+  }, [embedded]);
+
   const embed = async () => {
     if (!controller || !spec || rois.length === 0) return;
     const level = levelForMpp(meta, spec.targetMpp);
@@ -254,13 +283,33 @@ export function PredictPanel({
               <option value={1}>whole patch — no overlap</option>
               <option value={0.5}>half — 4× the patches</option>
               <option value={0.25}>quarter — 16× the patches</option>
+              <option value={0.125}>eighth — 64× the patches</option>
+              <option value={0.0625}>sixteenth — 256× the patches</option>
             </select>
           </label>
           {strideFraction < 1 && (
-            <div className="picker-hint">
+            <div className={strideFraction <= 0.125 ? "note warn" : "picker-hint"}>
               Overlapping patches see each point of tissue from several offsets, and averaging
-              them gives a map at {Math.round(patchPx * strideFraction)} px rather than {patchPx}.
-              It costs {Math.round(1 / (strideFraction * strideFraction))}× the encoding.
+              them gives a map at {Math.max(1, Math.round(patchPx * strideFraction))} px rather
+              than {patchPx} — at {Math.round(1 / (strideFraction * strideFraction))}× the
+              encoding.
+              {estimatedPatches !== null && (
+                <>
+                  {" "}
+                  About {estimatedPatches.toLocaleString()} patches here
+                  {perPatchMs !== null && (
+                    <>, roughly {formatDuration((estimatedPatches * perPatchMs) / 1000)}</>
+                  )}
+                  .
+                </>
+              )}
+              {strideFraction <= 0.125 && (
+                <>
+                  {" "}
+                  Past a quarter the gain is mostly smoothing: the encoder still judges 224 px at
+                  a time, so neighbouring offsets increasingly agree.
+                </>
+              )}
             </div>
           )}
 
@@ -548,6 +597,13 @@ function swatch(classes: { id: string; color: [number, number, number] }[], id: 
 }
 
 /** Pyramid level nearest a target µm/pixel; finer wins a tie. */
+/** Seconds as something a person can act on, not a raw count. */
+function formatDuration(seconds: number): string {
+  if (seconds < 90) return `${Math.round(seconds)}s`;
+  if (seconds < 5400) return `${Math.round(seconds / 60)} min`;
+  return `${(seconds / 3600).toFixed(1)} hours`;
+}
+
 function levelForMpp(meta: SlideMeta, targetMpp: number | null): number {
   if (!targetMpp || !meta.mppX) return 0;
   let best = 0;
