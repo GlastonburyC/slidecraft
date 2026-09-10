@@ -40,6 +40,15 @@ let session: ort.InferenceSession | null = null;
 let spec: ModelSpec | null = null;
 let inputName = "pixel_values";
 let dim = 0;
+/**
+ * The element type the graph actually wants.
+ *
+ * An fp16 export takes fp16 input, and feeding it float32 fails at the first
+ * run with "Unexpected input data type" — after the model has downloaded,
+ * loaded and been compiled. Rather than assume, or make the sidecar carry yet
+ * another thing that can disagree with the graph, ask the graph.
+ */
+let inputType: "float32" | "float16" = "float32";
 
 const post = (m: Res, transfer: Transferable[] = []) =>
   (self as unknown as DedicatedWorkerGlobalScope).postMessage(m, transfer);
@@ -73,15 +82,18 @@ async function load(id: number, next: ModelSpec) {
 
   spec = next;
   inputName = session.inputNames[0] ?? "pixel_values";
+  const meta = session.inputMetadata?.find((m) => m.name === inputName);
+  const declared = (meta as { type?: string } | undefined)?.type;
+  inputType = declared === "float16" ? "float16" : "float32";
 
   // Probe the real output width rather than trusting the registry: a shard of
   // cached vectors is keyed by dimension, and writing 1536-d vectors into a
   // 2560-d shard would be a silent, permanent corruption of the cache.
-  const probe = new ort.Tensor(
-    "float32",
-    new Float32Array(3 * next.inputSize * next.inputSize),
-    [1, 3, next.inputSize, next.inputSize],
-  );
+  const probeDims = [1, 3, next.inputSize, next.inputSize];
+  const probe =
+    inputType === "float16"
+      ? new ort.Tensor("float16", new Uint16Array(3 * next.inputSize * next.inputSize), probeDims)
+      : new ort.Tensor("float32", new Float32Array(3 * next.inputSize * next.inputSize), probeDims);
   const out = await session.run({ [inputName]: probe });
   const first = out[session.outputNames[0]];
   dim = first.dims[first.dims.length - 1];
@@ -95,19 +107,59 @@ async function load(id: number, next: ModelSpec) {
   post({ type: "loaded", id, backend, dim });
 }
 
+/** float32 to IEEE half, as the bit pattern ORT expects in a Uint16Array. */
+function toHalf(value: number): number {
+  f32[0] = value;
+  const bits = u32[0];
+  const sign = (bits >>> 16) & 0x8000;
+  let exponent = ((bits >>> 23) & 0xff) - 127 + 15;
+  const fraction = (bits >>> 13) & 0x3ff;
+  if (exponent <= 0) return sign; // underflows to signed zero
+  if (exponent >= 31) return sign | 0x7c00; // overflows to infinity
+  return sign | (exponent << 10) | fraction;
+}
+const f32 = new Float32Array(1);
+const u32 = new Uint32Array(f32.buffer);
+
+/** IEEE half bit pattern back to a double. */
+function fromHalf(bits: number): number {
+  const sign = bits & 0x8000 ? -1 : 1;
+  const exponent = (bits & 0x7c00) >> 10;
+  const fraction = bits & 0x03ff;
+  if (exponent === 0) return sign * Math.pow(2, -14) * (fraction / 1024);
+  if (exponent === 31) return fraction ? NaN : sign * Infinity;
+  return sign * Math.pow(2, exponent - 15) * (1 + fraction / 1024);
+}
+
+function widen(data: Float32Array | Uint16Array): Float32Array<ArrayBuffer> {
+  // A fresh, unshared buffer either way: the result is transferred to the main
+  // thread, and a view onto ORT's own (possibly shared) heap cannot be.
+  const out = new Float32Array(data.length);
+  if (data instanceof Float32Array) out.set(data);
+  else for (let i = 0; i < data.length; i++) out[i] = fromHalf(data[i]);
+  return out as Float32Array<ArrayBuffer>;
+}
+
 function toTensor(tiles: Uint8ClampedArray, size: number, count: number, s: ModelSpec) {
   const plane = size * size;
-  const data = new Float32Array(count * 3 * plane);
+  const values = new Float32Array(count * 3 * plane);
   for (let n = 0; n < count; n++) {
     const src = n * plane * 4;
     const dst = n * 3 * plane;
     for (let i = 0; i < plane; i++) {
-      data[dst + i] = (tiles[src + i * 4] - s.mean[0]) / s.std[0];
-      data[dst + plane + i] = (tiles[src + i * 4 + 1] - s.mean[1]) / s.std[1];
-      data[dst + 2 * plane + i] = (tiles[src + i * 4 + 2] - s.mean[2]) / s.std[2];
+      values[dst + i] = (tiles[src + i * 4] - s.mean[0]) / s.std[0];
+      values[dst + plane + i] = (tiles[src + i * 4 + 1] - s.mean[1]) / s.std[1];
+      values[dst + 2 * plane + i] = (tiles[src + i * 4 + 2] - s.mean[2]) / s.std[2];
     }
   }
-  return new ort.Tensor("float32", data, [count, 3, size, size]);
+  const dims = [count, 3, size, size];
+  if (inputType === "float32") return new ort.Tensor("float32", values, dims);
+
+  // Normalise in float32 and narrow at the end: doing the arithmetic in half
+  // precision would lose more than the storage does.
+  const half = new Uint16Array(values.length);
+  for (let i = 0; i < values.length; i++) half[i] = toHalf(values[i]);
+  return new ort.Tensor("float16", half, dims);
 }
 
 self.onmessage = async (ev: MessageEvent<Req>) => {
@@ -125,9 +177,10 @@ self.onmessage = async (ev: MessageEvent<Req>) => {
       const tensor = toTensor(tiles, msg.size, msg.count, spec);
 
       const out = await session.run({ [inputName]: tensor });
-      const values = out[session.outputNames[0]].data as Float32Array;
-
-      const copy = new Float32Array(values);
+      // An fp16 graph answers in fp16. Everything downstream — the cache, the
+      // head, the standardisation — is float32, so widen here rather than
+      // letting half-precision leak into the rest of the app.
+      const copy = widen(out[session.outputNames[0]].data as Float32Array | Uint16Array);
       post(
         { type: "embedded", id: msg.id, vectors: copy.buffer, dim, ms: performance.now() - started },
         [copy.buffer],
