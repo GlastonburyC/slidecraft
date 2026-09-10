@@ -5,7 +5,9 @@ import { ROI_CLASS_ID } from "../annotate/types";
 import { readOverviewGrid } from "../ml/tissue";
 import { collectSamples, mergeSamples, summarise } from "../ml/tissueLabels";
 import { explain, NotEnoughLabels, trainTissueModel } from "../ml/tissueModel";
-import { deleteTissueModel, loadTissueModels, saveTissueModel } from "../ml/tissueModelStore";
+import {
+  deleteTissueModel, loadTissueModels, loadTissueSamples, saveTissueModel,
+} from "../ml/tissueModelStore";
 import { ARTEFACT_CLASS, TISSUE_CLASS, useTraining } from "../ml/tissueTraining";
 import type { SlideSource } from "../slide/types";
 import { BatchDialog } from "./BatchDialog";
@@ -35,7 +37,7 @@ export function TissueModelPanel({
 
   const {
     samples, models, staleModels, activeModelId, useModel, busy, notice,
-    addSamples, removeSamples, setModels, addModel, setActiveModel, setUseModel,
+    addSamples, removeSamples, replaceSamples, setModels, addModel, setActiveModel, setUseModel,
     setBusy, setNotice,
   } = useTraining();
 
@@ -109,7 +111,8 @@ export function TissueModelPanel({
         name: name.trim() || `Tissue ${new Date().toLocaleDateString()}`,
         slides: samples.map((s) => s.slide),
       });
-      await saveTissueModel(model);
+      // The labels go with it, so a later session can add a slide and retrain.
+      await saveTissueModel(model, samples);
       addModel(model);
       setUseModel(true);
       setName("");
@@ -122,6 +125,31 @@ export function TissueModelPanel({
     } finally {
       setBusy(null);
     }
+  };
+
+  /**
+   * Picking a model brings back the labels it was fitted on.
+   *
+   * Otherwise "add one more slide and retrain" is impossible after a reload:
+   * the model remembers which slides it used, but without their labelled cells
+   * a retrain would silently be a fresh model built from one slide, wearing the
+   * old one's name. Restoring them makes adding a slide additive, which is what
+   * training across a set is for.
+   */
+  const choose = async (id: string) => {
+    setActiveModel(id);
+    setNotice(null);
+    const stored = await loadTissueSamples(id);
+    if (!stored) {
+      const m = models.find((x) => x.id === id);
+      setNotice(
+        m && m.slides.length
+          ? `This model was saved before labels were kept. Re-mark its slides to extend it.`
+          : null,
+      );
+      return;
+    }
+    replaceSamples(stored);
   };
 
   const totals = summarise(samples);
@@ -252,26 +280,47 @@ export function TissueModelPanel({
         <>
           <div className="model-group-head" style={{ marginTop: 10 }}>Saved models</div>
           {models.map((m) => (
-            <button
-              key={m.id}
-              className="model-option"
-              aria-current={m.id === activeModelId}
-              onClick={() => setActiveModel(m.id)}
-            >
-              <div className="model-option-head">
-                <span className="radio" data-on={m.id === activeModelId} />
-                <span className="model-option-name">{m.name}</span>
-                <span className="model-option-size">
-                  {m.slides.length} slide{m.slides.length === 1 ? "" : "s"}
-                </span>
-              </div>
-              <div className="model-option-blurb">
-                {m.samples.tissue.toLocaleString()} tissue · {m.samples.artefact.toLocaleString()} not ·{" "}
-                {m.metrics
-                  ? `F1 ${m.metrics.f1.toFixed(2)} on ${m.metrics.heldOut.toLocaleString()} held-out cells`
-                  : "no held-out score — label a third region of each kind to get one"}
-              </div>
-            </button>
+            <div key={m.id} className="model-row">
+              <button
+                className="model-option"
+                aria-current={m.id === activeModelId}
+                onClick={() => void choose(m.id)}
+                title="Use this model, and load the labels it was trained on"
+              >
+                <div className="model-option-head">
+                  <span className="radio" data-on={m.id === activeModelId} />
+                  <span className="model-option-name">{m.name}</span>
+                  <span className="model-option-size">
+                    {m.slides.length} slide{m.slides.length === 1 ? "" : "s"}
+                  </span>
+                </div>
+                <div className="model-option-blurb">
+                  {m.samples.tissue.toLocaleString()} tissue ·{" "}
+                  {m.samples.artefact.toLocaleString()} not ·{" "}
+                  {m.metrics
+                    ? `F1 ${m.metrics.f1.toFixed(2)} on ${m.metrics.heldOut.toLocaleString()} held-out cells`
+                    : "no held-out score — label a third region of each kind to get one"}
+                </div>
+                {m.slides.length > 0 && (
+                  <div className="model-slides" title={m.slides.join("\n")}>
+                    {m.slides.join(" · ")}
+                  </div>
+                )}
+              </button>
+              <button
+                className="model-remove"
+                aria-label={`Delete ${m.name}`}
+                title="Delete this model and the labels saved with it"
+                onClick={() => {
+                  if (!window.confirm(`Delete "${m.name}" and its saved labels?`)) return;
+                  void deleteTissueModel(m.id).then(() =>
+                    loadTissueModels().then((st) => setModels(st.usable, st.stale)),
+                  );
+                }}
+              >
+                ×
+              </button>
+            </div>
           ))}
 
           <label className="check">
@@ -285,24 +334,14 @@ export function TissueModelPanel({
             </div>
           )}
 
-          <div className="row-actions">
-            <button className="btn" onClick={() => setBatching(true)} disabled={busy !== null}>
-              Run on a folder…
-            </button>
-            {active && (
-              <button
-                className="btn danger"
-                onClick={() => {
-                  if (!window.confirm(`Delete "${active.name}"?`)) return;
-                  void deleteTissueModel(active.id).then(() =>
-                    loadTissueModels().then((s) => setModels(s.usable, s.stale)),
-                  );
-                }}
-              >
-                Delete
-              </button>
-            )}
-          </div>
+          <button
+            className="btn"
+            style={{ width: "100%" }}
+            onClick={() => setBatching(true)}
+            disabled={busy !== null}
+          >
+            Run tissue classifier on every slide in a folder…
+          </button>
         </>
       )}
 

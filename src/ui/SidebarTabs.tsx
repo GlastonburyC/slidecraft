@@ -55,6 +55,24 @@ export const SIDEBAR_TABS: TabDef[] = [
   },
 ];
 
+/**
+ * Counts short enough to sit on an icon.
+ *
+ * A patch grid runs to tens of thousands, and "23716" on a 60-pixel tab is
+ * unreadable and pushes the label out of the way. One significant decimal is
+ * enough to answer the only question a badge is asked — roughly how many — and
+ * the exact figure stays in the tooltip.
+ */
+export function compact(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) {
+    const k = n / 1000;
+    return `${k < 10 ? k.toFixed(1).replace(/\.0$/, "") : Math.round(k)}k`;
+  }
+  const m = n / 1_000_000;
+  return `${m < 10 ? m.toFixed(1).replace(/\.0$/, "") : Math.round(m)}M`;
+}
+
 export function SidebarTabs({
   active, onChange, badge,
 }: {
@@ -79,7 +97,11 @@ export function SidebarTabs({
               strokeLinejoin="round" strokeLinecap="round" />
           </svg>
           <span>{t.label}</span>
-          {badge?.[t.id] ? <span className="tab-badge">{badge[t.id]}</span> : null}
+          {badge?.[t.id] ? (
+            <span className="tab-badge" title={badge[t.id]!.toLocaleString()}>
+              {compact(badge[t.id]!)}
+            </span>
+          ) : null}
         </button>
       ))}
     </div>

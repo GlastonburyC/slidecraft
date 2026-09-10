@@ -175,7 +175,13 @@ same pixel count.
 **Only where there is tissue** clips the grid to detected tissue, so an ROI
 drawn loosely round a fragment does not spend the encoder on glass.
 
-The grid leaves as coordinates rather than as image files:
+**Make patch objects** turns the grid into real regions in a `Patch` class. Each
+one behaves like an ROI: select it, drag its corners or edges to adjust it, give
+it a class. That matters because a patch is a window you chose rather than a
+measurement — if the grid put one half off the tissue, you can move it before
+anything is computed on it.
+
+The grid also leaves as coordinates rather than as image files:
 
 - **Export coordinates** writes `<slide>.patches.json` — every patch's top-left
   in level-0 pixels, plus the level and size, which is exactly what

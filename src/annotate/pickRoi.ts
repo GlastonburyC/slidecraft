@@ -1,3 +1,4 @@
+import { isFrame } from "./resize";
 import { ROI_CLASS_ID, type Annotation } from "./types";
 
 /**
@@ -16,7 +17,22 @@ export function pickRoi(
   items: Map<string, Annotation>,
   selection: Set<string>,
 ): { roi: Annotation | null; total: number; implicit: boolean } {
+  /**
+   * A single selected frame wins even when it is a patch.
+   *
+   * Selecting one patch and asking to encode it is a coherent request — it is a
+   * window you picked — so it is honoured. What patches never do is join the
+   * pool the fallback draws from: with a few thousand of them, "the most recent
+   * ROI" would always be a patch and the ROI you actually drew would be
+   * unreachable.
+   */
+  const selectedFrames = [...selection]
+    .map((id) => items.get(id))
+    .filter((a): a is Annotation => !!a && isFrame(a));
   const rois = [...items.values()].filter((a) => a.classId === ROI_CLASS_ID);
+  if (selectedFrames.length === 1) {
+    return { roi: selectedFrames[0], total: rois.length, implicit: false };
+  }
   if (rois.length === 0) return { roi: null, total: 0, implicit: false };
 
   const selected = rois.filter((a) => selection.has(a.id));

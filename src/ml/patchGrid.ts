@@ -19,6 +19,15 @@ export interface PatchGridOptions {
   level?: number;
   /** Keep only patches whose centre falls inside one of these geometries. */
   within?: Annotation[];
+  /**
+   * A second, independent test the centre must ALSO pass.
+   *
+   * Two filters rather than one longer list, because `within` is an OR: adding
+   * the tissue to the ROI's own list would mean "inside the ROI *or* on tissue",
+   * which is every patch in the ROI — the filter silently does nothing, and the
+   * grid covers the glass it was supposed to avoid.
+   */
+  restrictTo?: Annotation[];
   /** Drop patches that fall outside the slide's scanned bounds. */
   bounds?: { x: number; y: number; width: number; height: number } | null;
 }
@@ -73,6 +82,7 @@ export function buildPatchGrid(
   const rows = Math.max(0, Math.floor((region.height - size) / step) + 1);
 
   const within = (opts.within ?? []).filter((a) => isAreaGeometry(a.geometry));
+  const restrictTo = (opts.restrictTo ?? []).filter((a) => isAreaGeometry(a.geometry));
   const patches: Patch[] = [];
 
   for (let row = 0; row < rows; row++) {
@@ -85,12 +95,20 @@ export function buildPatchGrid(
         if (x < b.x || y < b.y || x + size > b.x + b.width || y + size > b.y + b.height) continue;
       }
 
-      if (within.length > 0) {
+      if (within.length > 0 || restrictTo.length > 0) {
         // Centre-in-region: a patch belongs to the tissue it is mostly on, and
         // testing one point keeps this linear in patches rather than in vertices.
         const cx = x + size / 2;
         const cy = y + size / 2;
-        if (!within.some((a) => containsPoint(a.geometry as Geometry, cx, cy))) continue;
+        if (within.length > 0 && !within.some((a) => containsPoint(a.geometry as Geometry, cx, cy))) {
+          continue;
+        }
+        if (
+          restrictTo.length > 0 &&
+          !restrictTo.some((a) => containsPoint(a.geometry as Geometry, cx, cy))
+        ) {
+          continue;
+        }
       }
 
       patches.push({ index: patches.length, col, row, x, y, size });

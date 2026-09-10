@@ -69,3 +69,53 @@ describe("patch grid", () => {
     expect(a).not.toBe(patchKey("slideA", "uni", 0, 128, g.patches[1]));
   });
 });
+
+/** A closed rectangle as an annotation, for the `within` / `restrictTo` tests. */
+function annotationOf(ring: [number, number][]) {
+  return makeAnnotation({ type: "Polygon", coordinates: [ring] }, { classId: "c" });
+}
+
+describe("restricting patches to tissue", () => {
+  const roi = annotationOf([[0, 0], [4000, 0], [4000, 4000], [0, 4000], [0, 0]]);
+  // Tissue covering only the left quarter of that ROI.
+  const tissue = annotationOf([[0, 0], [1000, 0], [1000, 4000], [0, 4000], [0, 0]]);
+  const region = { x: 0, y: 0, width: 4000, height: 4000 };
+
+  /**
+   * `within` is an OR. Putting the ROI and the tissue in the same list means
+   * "inside the ROI *or* on tissue", which every patch in the ROI satisfies —
+   * the tissue filter silently does nothing and the grid covers the glass it
+   * was meant to avoid. The two tests are separate for that reason.
+   */
+  it("keeps only patches that are inside the ROI AND on tissue", () => {
+    const all = buildPatchGrid(region, 1, 0.25, { patchPx: 500, within: [roi] });
+    const onTissue = buildPatchGrid(region, 1, 0.25, {
+      patchPx: 500,
+      within: [roi],
+      restrictTo: [tissue],
+    });
+
+    expect(all.patches.length).toBeGreaterThan(onTissue.patches.length);
+    // Only the leftmost column of centres falls inside the tissue.
+    expect(onTissue.patches.every((p) => p.x + 250 <= 1000)).toBe(true);
+    expect(onTissue.patches.length).toBeGreaterThan(0);
+  });
+
+  it("is a no-op when nothing is passed to restrict to", () => {
+    const a = buildPatchGrid(region, 1, 0.25, { patchPx: 500, within: [roi] });
+    const b = buildPatchGrid(region, 1, 0.25, { patchPx: 500, within: [roi], restrictTo: [] });
+    expect(b.patches.length).toBe(a.patches.length);
+  });
+
+  it("drops everything when the tissue and the ROI do not meet", () => {
+    const elsewhere = annotationOf([
+      [90000, 90000], [91000, 90000], [91000, 91000], [90000, 91000], [90000, 90000],
+    ]);
+    const grid = buildPatchGrid(region, 1, 0.25, {
+      patchPx: 500,
+      within: [roi],
+      restrictTo: [elsewhere],
+    });
+    expect(grid.patches.length).toBe(0);
+  });
+});

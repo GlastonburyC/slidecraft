@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { pickRoi, roiHint } from "../annotate/pickRoi";
+import { resizeTarget } from "../annotate/resize";
 import { makeAnnotation } from "../annotate/store";
 import { ROI_CLASS_ID, type Annotation } from "../annotate/types";
 
@@ -56,5 +57,46 @@ describe("choosing the ROI an action applies to", () => {
   it("says nothing when an ROI is available", () => {
     const p = pickRoi(map(roi(0)), new Set());
     expect(roiHint(p.total, p.roi)).toBe(null);
+  });
+});
+
+describe("patches are frames", () => {
+  const patch = (x: number): Annotation =>
+    makeAnnotation(
+      { type: "Polygon", coordinates: [[[x, 0], [x + 256, 0], [x + 256, 256], [x, 256], [x, 0]]] },
+      { classId: "patch", modelId: "patch-grid", source: "model" },
+    );
+
+  it("lets a single selected patch stand in as the ROI", () => {
+    const r = roi(0);
+    const p = patch(5000);
+    const picked = pickRoi(map(r, p), new Set([p.id]));
+    expect(picked.roi?.id).toBe(p.id);
+  });
+
+  /**
+   * The fallback must never reach for a patch. With a few thousand of them the
+   * most recent object is always a patch, and the ROI the user actually drew
+   * becomes unreachable.
+   */
+  it("never falls back to a patch when nothing is selected", () => {
+    const r = roi(0);
+    const patches = Array.from({ length: 5 }, (_, i) => patch(5000 + i * 300));
+    const picked = pickRoi(map(r, ...patches), new Set());
+    expect(picked.roi?.id).toBe(r.id);
+    expect(picked.total).toBe(1);
+  });
+
+  it("is resizable, the way an ROI is", () => {
+    const p = patch(5000);
+    expect(resizeTarget(map(p), new Set([p.id]))?.id).toBe(p.id);
+  });
+
+  it("still refuses to resize a measured object", () => {
+    const nucleus = makeAnnotation(
+      { type: "Polygon", coordinates: [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]] },
+      { classId: "nuclei", source: "model", modelId: "slimsam-77" },
+    );
+    expect(resizeTarget(map(nucleus), new Set([nucleus.id]))).toBe(null);
   });
 });

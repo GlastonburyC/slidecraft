@@ -26,6 +26,8 @@ interface TrainingState {
 
   addSamples: (s: SlideSamples) => void;
   removeSamples: (slide: string) => void;
+  /** Swap in a whole set, e.g. the one a saved model was trained on. */
+  replaceSamples: (s: SlideSamples[]) => void;
   clearSamples: () => void;
   setModels: (models: TissueModel[], stale?: TissueModel[]) => void;
   addModel: (m: TissueModel) => void;
@@ -49,6 +51,7 @@ export const useTraining = create<TrainingState>((set) => ({
   addSamples: (s) =>
     set((st) => ({ samples: [...st.samples.filter((p) => p.slide !== s.slide), s] })),
   removeSamples: (slide) => set((st) => ({ samples: st.samples.filter((p) => p.slide !== slide) })),
+  replaceSamples: (samples) => set({ samples }),
   clearSamples: () => set({ samples: [] }),
   setModels: (models, stale) =>
     set((st) => ({

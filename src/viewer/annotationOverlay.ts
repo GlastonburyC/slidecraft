@@ -294,7 +294,15 @@ export class AnnotationOverlay {
     if (gridState && state.showAnnotations) {
       const { patches, downsample, patchPx } = gridState.grid;
       const side = patchPx * downsample;
-      if (patches.length <= 4000 && side * pxPerSlidePx > 3) {
+      /**
+       * Drawn wherever a cell is at least a couple of pixels across.
+       *
+       * The old floor of three pixels meant that laying a grid and then looking
+       * at the whole ROI showed nothing at all — the one moment you most want
+       * to see it, to judge whether the scale is right and whether it is
+       * sitting on tissue.
+       */
+      if (patches.length <= 20000 && side * pxPerSlidePx > 1.5) {
         layers.push(
           new PolygonLayer<{ x: number; y: number }>({
             id: "patch-grid",

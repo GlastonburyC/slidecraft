@@ -12,6 +12,15 @@ import type { SlideMeta } from "../slide/types";
  * the patch that was drawn.
  */
 
+/**
+ * Marks an annotation as one cell of a patch grid.
+ *
+ * Recorded on `modelId` rather than inferred from a class name, so renaming the
+ * class does not change what the app believes the object is — rebuilding the
+ * grid still replaces the right objects, and the resize handles still appear.
+ */
+export const PATCH_MODEL_ID = "patch-grid";
+
 export interface PatchManifest {
   slide: string;
   /** Microns per pixel at level 0, when the slide reports it. */

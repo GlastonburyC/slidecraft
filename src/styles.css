@@ -517,3 +517,117 @@ input.search::-webkit-search-cancel-button { filter: invert(0.6); }
   white-space: pre-wrap; overflow-x: auto;
 }
 details.picker-hint summary { cursor: pointer; }
+
+/* A model row: the option, with its own delete beside it. */
+.model-row { display: flex; align-items: stretch; gap: 2px; }
+.model-row .model-option { flex: 1; min-width: 0; }
+.model-remove {
+  flex: none; width: 22px; align-self: stretch; margin-bottom: 2px;
+  background: transparent; border: 1px solid transparent; border-radius: 6px;
+  color: var(--text-faint); font-size: 14px; line-height: 1; cursor: pointer;
+}
+.model-row:hover .model-remove { color: var(--text-dim); }
+.model-remove:hover { background: #2a1c1f; color: var(--err); border-color: #4a2a2f; }
+.model-slides {
+  font: 10px/1.5 var(--mono); color: var(--text-faint);
+  margin-top: 4px; padding-left: 17px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ---------- the remember lamp ---------- */
+
+/*
+ * A neon indicator, not a checkbox.
+ *
+ * It answers "will my work be here when I come back", which is worth being able
+ * to read from across the desk without parsing a label. Green is the safe
+ * state and it is the default; red means slides open clean, which is a thing
+ * you want to notice you have chosen.
+ */
+.lamp {
+  display: inline-flex; align-items: center; gap: 10px;
+  margin: 26px auto 0; padding: 8px 15px 8px 13px;
+  background: #0f1318; border: 1px solid var(--border); border-radius: 999px;
+  color: var(--text-dim); font: 12px/1 var(--sans); cursor: pointer;
+  transition: border-color .25s ease, color .25s ease;
+}
+.lamp:hover { border-color: var(--border-strong); color: var(--text); }
+
+.lamp-dot {
+  width: 9px; height: 9px; border-radius: 50%; flex: none;
+  transition: background .3s ease, box-shadow .3s ease;
+}
+.lamp[data-on="true"] .lamp-dot {
+  background: #2fe08a;
+  box-shadow: 0 0 5px #2fe08a, 0 0 12px rgba(47, 224, 138, .75), 0 0 22px rgba(47, 224, 138, .35);
+}
+.lamp[data-on="false"] .lamp-dot {
+  background: #ff4d5e;
+  box-shadow: 0 0 5px #ff4d5e, 0 0 12px rgba(255, 77, 94, .75), 0 0 22px rgba(255, 77, 94, .35);
+}
+.lamp[data-on="true"] { border-color: rgba(47, 224, 138, .28); }
+.lamp[data-on="false"] { border-color: rgba(255, 77, 94, .28); }
+
+/* A slow breath, so it reads as live rather than as a painted dot. */
+@keyframes lamp-breathe { 50% { opacity: .62; } }
+.lamp-dot { animation: lamp-breathe 3.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .lamp-dot { animation: none; } }
+
+.lamp-text { letter-spacing: .01em; }
+
+/* ---------- splash ---------- */
+
+.splash {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 20px; background: var(--bg);
+  transition: opacity 420ms ease;
+}
+.splash[data-leaving="true"] { opacity: 0; pointer-events: none; }
+
+.splash-mark { width: 116px; height: 116px; color: var(--text-dim); }
+.splash-mark svg { width: 100%; height: 100%; overflow: visible; }
+
+.splash .glass, .splash .frost {
+  stroke-dasharray: 100; stroke-dashoffset: 100;
+  animation: splash-draw 1s cubic-bezier(.65,0,.35,1) forwards;
+}
+.splash .frost { animation-delay: .42s; }
+
+.splash .tissue { fill: var(--accent); opacity: 0; transform-origin: 16px 18px; }
+.splash .tissue.a { animation: splash-settle .7s cubic-bezier(.22,1,.36,1) .72s forwards; }
+.splash .tissue.b { animation: splash-settle .7s cubic-bezier(.22,1,.36,1) .86s forwards; }
+
+.splash .ring {
+  fill: none; stroke: var(--bg); stroke-width: 1.5; opacity: 0;
+  transform-origin: 14.6px 17.2px;
+  animation: splash-pick .6s cubic-bezier(.34,1.56,.64,1) 1.42s forwards;
+}
+.splash .nucleus { fill: var(--bg); opacity: 0; animation: splash-fade .4s ease 1.5s forwards; }
+.splash .sweep { fill: url(#splashSweep); opacity: 0; animation: splash-sweep 1.2s ease-in-out .95s; }
+
+.splash-word {
+  font: 500 13px/1 var(--sans); letter-spacing: .22em; text-transform: uppercase;
+  color: var(--text-faint); opacity: 0;
+  animation: splash-fade-in .6s ease .9s forwards;
+}
+
+@keyframes splash-draw { to { stroke-dashoffset: 0; } }
+@keyframes splash-settle {
+  from { opacity: 0; transform: translateY(-3px) scale(.85); }
+  to { opacity: .85; transform: none; }
+}
+@keyframes splash-pick { from { opacity: 0; transform: scale(2.2); } to { opacity: .6; transform: none; } }
+@keyframes splash-fade { to { opacity: .7; } }
+@keyframes splash-fade-in { to { opacity: 1; } }
+@keyframes splash-sweep { 0% { opacity: 0; } 25% { opacity: .5; } 75% { opacity: .5; } 100% { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .splash * { animation: none !important; }
+  .splash .glass, .splash .frost { stroke-dashoffset: 0; }
+  .splash .tissue { opacity: .85; }
+  .splash .ring { opacity: .6; }
+  .splash .nucleus { opacity: .7; }
+  .splash-word { opacity: 1; }
+  .splash .sweep { opacity: 0; }
+}

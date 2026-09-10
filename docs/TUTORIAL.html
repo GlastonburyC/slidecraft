@@ -178,7 +178,8 @@
 <p>Draw an ROI with <kbd>O</kbd>, then in <strong>Patches</strong> choose a size in pixels (128×128, 256×256) and a pyramid level, and <strong>Lay grid over ROI</strong>.</p>
 <p>Patches are specified in pixels at a level, not in microns, because that is how an encoder is defined — a ViT sees a fixed pixel tensor. The panel reports the micron size each patch covers, since that is what decides whether the grid is looking at cells or at architecture, and it differs between scanners for the same pixel count.</p>
 <p><strong>Only where there is tissue</strong> clips the grid to detected tissue, so an ROI drawn loosely round a fragment does not spend the encoder on glass.</p>
-<p>The grid leaves as coordinates rather than as image files:</p>
+<p><strong>Make patch objects</strong> turns the grid into real regions in a <code>Patch</code> class. Each one behaves like an ROI: select it, drag its corners or edges to adjust it, give it a class. That matters because a patch is a window you chose rather than a measurement — if the grid put one half off the tissue, you can move it before anything is computed on it.</p>
+<p>The grid also leaves as coordinates rather than as image files:</p>
 <ul><li><strong>Export coordinates</strong> writes <code>&lt;slide&gt;.patches.json</code> — every patch's top-left in level-0 pixels, plus the level and size, which is exactly what <code>read_region(x, y, level, size, size)</code> takes. The panel includes the Python to read them back.</li><li><strong>Export GeoJSON</strong> writes the same squares as polygons, to open beside the slide and check what was patched.</li></ul>
 <p>Nothing is copied out of the browser, so the patches cannot drift from the slide they came from.</p>
 <h3>10. Export</h3>

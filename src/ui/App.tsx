@@ -13,11 +13,13 @@ import { activeModel, TISSUE_CLASS } from "../ml/tissueTraining";
 import { ModelPanel } from "./ModelPanel";
 import { PatchPanel } from "./PatchPanel";
 import { SidebarTabs, type SidebarTab } from "./SidebarTabs";
+import { Splash } from "./Splash";
 import { TissueModelPanel } from "./TissueModelPanel";
 import { SegmentPanel } from "./SegmentPanel";
 import type { SegmentController } from "../ml/segmentController";
 import { useAnnotations } from "../annotate/store";
 import { loadDocument, saveDocument, slideKeyOf } from "../io/persistence";
+import { getRememberAnnotations, setRememberAnnotations } from "../io/prefs";
 import { fromGeoJSON, isGeoJSONFile } from "../io/geojson";
 
 interface Stats { tiles: number; avgMs: number; maxMs: number; errors: number }
@@ -35,6 +37,9 @@ export function App() {
   const [source, setSource] = useState<SlideSource | null>(null);
   const [slideFilter, setSlideFilter] = useState("");
   const [tab, setTab] = useState<SidebarTab>("slides");
+  const [remember, setRemember] = useState(getRememberAnnotations);
+  const annotationItems = useAnnotations((s) => s.items);
+  const annotationVersion = useAnnotations((s) => s.version);
   const [loading, setLoading] = useState(false);
   const [openPhase, setOpenPhase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -233,7 +238,7 @@ export function App() {
     const sidecar = activeIdx !== null ? (slides[activeIdx]?.annotations ?? null) : null;
     let cancelled = false;
 
-    void loadDocument(key).then(async (doc) => {
+    void loadDocument(remember ? key : "").then(async (doc) => {
       if (cancelled) return;
       const store = useAnnotations.getState();
       if (doc && doc.annotations.length > 0) {
@@ -267,7 +272,7 @@ export function App() {
     });
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source]);
+  }, [source, remember]);
 
   // Autosave, debounced so a brush stroke does not thrash IndexedDB.
   useEffect(() => {
@@ -308,6 +313,34 @@ export function App() {
 
   const active = activeIdx !== null ? slides[activeIdx] : null;
 
+  /**
+   * What each tab is holding, counted once per document revision.
+   *
+   * Objects are counted by what produced them rather than by class name, so
+   * renaming a class does not empty a badge.
+   */
+  const badges = useMemo(() => {
+    const items = [...annotationItems.values()];
+    let tissue = 0;
+    let cells = 0;
+    let patches = 0;
+    for (const a of items) {
+      if (a.modelId === "patch-grid") patches++;
+      else if (a.modelId?.startsWith("tissue-")) tissue++;
+      else if (a.source === "model") cells++;
+    }
+    return {
+      slides: slides.length || undefined,
+      // Objects, not classes: the badge answers "how much is on this slide".
+      annotate: items.length || undefined,
+      tissue: tissue || undefined,
+      cells: cells || undefined,
+      patches: patches || undefined,
+    };
+    // `version` is the change signal for the mutable item map.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slides.length, annotationVersion, annotationItems]);
+
   const visibleSlides = useMemo(() => {
     const q = slideFilter.trim().toLowerCase();
     return slides
@@ -317,6 +350,7 @@ export function App() {
 
   return (
     <div className="app">
+      <Splash />
       <aside className="sidebar">
         <div className="brand">
           <Logo />
@@ -324,11 +358,7 @@ export function App() {
           <span className="phase">PHASE 2</span>
         </div>
 
-        <SidebarTabs
-          active={tab}
-          onChange={setTab}
-          badge={{ slides: slides.length || undefined }}
-        />
+        <SidebarTabs active={tab} onChange={setTab} badge={badges} />
 
         <div className="sidebar-scroll">
           {!isolated && (
@@ -340,20 +370,6 @@ export function App() {
             </div>
           )}
 
-          {tab === "slides" && (
-          <div className="dropzone">
-            <strong>Drop slides here</strong>
-            <span>.svs · .ndpi · .mrxs · .tiff · .scn · .vms · DICOM</span>
-            <div className="dropzone-actions">
-              <button className="btn" onClick={() => fileInput.current?.click()}>
-                Choose files
-              </button>
-              <button className="btn" onClick={() => folderInput.current?.click()}>
-                Choose folder
-              </button>
-            </div>
-          </div>
-          )}
           <input
             ref={fileInput}
             data-testid="file-input"
@@ -382,9 +398,22 @@ export function App() {
             <div className="section"><div className="note err">{error}</div></div>
           )}
 
-          {tab === "slides" && slides.length > 0 && (
+          {tab === "slides" && (
             <section className="section">
-              <h2>Slides — {slides.length}</h2>
+              <h2>Slides{slides.length ? ` — ${slides.length}` : ""}</h2>
+              <div className="row-actions">
+                <button className="btn" onClick={() => fileInput.current?.click()}>
+                  Add files
+                </button>
+                <button className="btn" onClick={() => folderInput.current?.click()}>
+                  Add folder
+                </button>
+              </div>
+              {slides.length === 0 && (
+                <div className="picker-hint">
+                  Or drop slides anywhere in this window.
+                </div>
+              )}
               {/* A batch is hundreds of slides; without a filter the list is a
                   scroll hunt, and without a fixed height it pushes every other
                   panel off the screen. */}
@@ -398,7 +427,7 @@ export function App() {
                 />
               )}
               <div className="scroll-list">
-              {visibleSlides.length === 0 && (
+              {slides.length > 0 && visibleSlides.length === 0 && (
                 <div className="picker-hint">Nothing matches “{slideFilter}”.</div>
               )}
               {visibleSlides.map(({ slide: s, index: i }: { slide: ResolvedSlide; index: number }) => (
@@ -504,6 +533,35 @@ export function App() {
                   Drop a whole-slide image anywhere in this window. For MIRAX, drop the folder
                   containing both the <code>.mrxs</code> file and its data directory.
                 </p>
+                <div className="row-actions" style={{ justifyContent: "center", marginTop: 16 }}>
+                  <button className="btn" onClick={() => fileInput.current?.click()}>
+                    Choose files
+                  </button>
+                  <button className="btn" onClick={() => folderInput.current?.click()}>
+                    Choose folder
+                  </button>
+                </div>
+
+                {/* Set before a slide is open, because that is when it applies. */}
+                <button
+                  className="lamp"
+                  data-on={remember}
+                  onClick={() => {
+                    const next = !remember;
+                    setRemember(next);
+                    setRememberAnnotations(next);
+                  }}
+                  title={
+                    remember
+                      ? "Opening a slide restores the annotations saved against it"
+                      : "Slides open clean. Nothing is deleted — the saved annotations are just not loaded."
+                  }
+                >
+                  <span className="lamp-dot" />
+                  <span className="lamp-text">
+                    {remember ? "Remembering annotations" : "Opening slides clean"}
+                  </span>
+                </button>
               </div>
             </div>
           )

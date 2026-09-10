@@ -1,3 +1,4 @@
+import { PATCH_MODEL_ID } from "../ml/patchExport";
 import { bboxOf, ROI_CLASS_ID, type Annotation, type Geometry, type Position } from "./types";
 
 /**
@@ -8,11 +9,20 @@ import { bboxOf, ROI_CLASS_ID, type Annotation, type Geometry, type Position } f
  * edge out. Redrawing it from scratch each time loses whatever is already
  * pinned to it, so the box has to be adjustable in place.
  *
- * The handles are deliberately limited to ROIs. Dragging a corner of a traced
- * nucleus or a tissue boundary would rescale a measured object into a shape
- * that never existed on the slide, and the area recorded against it would
- * silently become fiction.
+ * The handles are limited to *frames* — ROIs, and the cells of a patch grid.
+ * A frame is a window you chose, so moving its edge is editing your choice. A
+ * traced nucleus or a tissue boundary is a measurement, and dragging its corner
+ * would rescale it into a shape that never existed on the slide, quietly
+ * turning the area recorded against it into fiction.
+ *
+ * A patch is a frame by the same logic: the grid puts it somewhere reasonable
+ * and you decide whether that is where you wanted it.
  */
+
+/** True for the objects that are a chosen window rather than a measurement. */
+export function isFrame(a: Annotation): boolean {
+  return a.classId === ROI_CLASS_ID || a.modelId === PATCH_MODEL_ID;
+}
 
 export type HandleId = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 
@@ -41,7 +51,7 @@ export function resizeTarget(
   if (selection.size !== 1) return null;
   const [id] = selection;
   const a = items.get(id);
-  if (!a || a.locked || a.classId !== ROI_CLASS_ID) return null;
+  if (!a || a.locked || !isFrame(a)) return null;
   if (a.geometry.type === "Point" || a.geometry.type === "LineString") return null;
   return a;
 }

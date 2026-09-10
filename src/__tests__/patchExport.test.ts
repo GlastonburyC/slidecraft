@@ -80,3 +80,33 @@ describe("exporting a patch grid", () => {
     expect(toPatchManifest(grid, { ...meta, mppX: null }).patchUm).toBe(null);
   });
 });
+
+describe("patches as objects", () => {
+  /**
+   * A patch that becomes an object has to sit exactly where the grid drew it —
+   * the preview is what the scale was judged on, and an object offset from it
+   * would be classified on a different field than the one that was checked.
+   */
+  it("makes a square per patch, matching the exported geometry", () => {
+    const grid = buildPatchGrid(region, 4, meta.mppX, { patchPx: 128, level: 1 });
+    const side = grid.patchPx * grid.downsample;
+    const fc = toPatchGeoJSON(grid, meta);
+
+    for (const [i, p] of grid.patches.entries()) {
+      const ring = fc.features[i].geometry.coordinates[0];
+      expect(ring[0]).toEqual([p.x, p.y]);
+      expect(ring[2]).toEqual([p.x + side, p.y + side]);
+      // The square is the size the grid says, in level-0 pixels.
+      expect(ring[2][0] - ring[0][0]).toBe(side);
+    }
+  });
+
+  it("keeps patches inside the ROI they were laid over", () => {
+    const grid = buildPatchGrid(region, 1, meta.mppX, { patchPx: 256, level: 0 });
+    const side = grid.patchPx * grid.downsample;
+    for (const p of grid.patches) {
+      expect(p.x + side).toBeLessThanOrEqual(region.x + region.width);
+      expect(p.y + side).toBeLessThanOrEqual(region.y + region.height);
+    }
+  });
+});

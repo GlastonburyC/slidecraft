@@ -1,10 +1,10 @@
 import { useMemo } from "react";
-import { useAnnotations } from "../annotate/store";
+import { makeAnnotation, useAnnotations } from "../annotate/store";
 import { pickRoi, roiHint } from "../annotate/pickRoi";
 import { useMl } from "../ml/mlStore";
 import { buildPatchGrid } from "../ml/patchGrid";
 import {
-  patchReaderSnippet, patchStem, toPatchGeoJSON, toPatchManifest,
+  PATCH_MODEL_ID, patchReaderSnippet, patchStem, toPatchGeoJSON, toPatchManifest,
 } from "../ml/patchExport";
 import type { SlideMeta } from "../slide/types";
 
@@ -23,6 +23,20 @@ import type { SlideMeta } from "../slide/types";
  */
 
 const SIZES = [64, 128, 224, 256, 384, 512];
+
+/**
+ * Patches are committed into their own class, not as ROIs.
+ *
+ * They are regions that will *carry* a classification — that is the whole point
+ * of feeding them to an encoder — and a class is what holds one. An ROI is the
+ * working frame you patch *from*, and every ROI action means "the one I am
+ * working in", so turning a few thousand patches into ROIs would make that
+ * question unanswerable.
+ */
+const PATCH_CLASS = "Patch";
+
+/** Beyond this, committing patches individually costs more than it returns. */
+const MAX_COMMIT = 20000;
 
 function download(text: string, filename: string, type: string) {
   const url = URL.createObjectURL(new Blob([text], { type }));
@@ -71,8 +85,9 @@ export function PatchPanel({ meta }: { meta: SlideMeta }) {
         patchPx,
         level: level?.level ?? 0,
         // Always clip to the ROI itself, so a lassoed ROI does not get a grid
-        // over its bounding box; optionally clip to the tissue as well.
-        within: patchesOnTissueOnly && tissue.length > 0 ? [roi, ...tissue] : [roi],
+        // over its bounding box; optionally require tissue underneath as well.
+        within: [roi],
+        restrictTo: patchesOnTissueOnly && tissue.length > 0 ? tissue : undefined,
         bounds: meta.bounds,
       },
     );
@@ -161,6 +176,60 @@ export function PatchPanel({ meta }: { meta: SlideMeta }) {
 
           {/* The grid leaves as coordinates, not pixels: whatever consumes it
               re-reads the slide, so nothing has to be copied out of here. */}
+          <button
+            className="btn"
+            style={{ width: "100%" }}
+            disabled={shown.patches.length === 0 || shown.patches.length > MAX_COMMIT}
+            title={
+              shown.patches.length > MAX_COMMIT
+                ? `Too many to make objects (${shown.patches.length.toLocaleString()}). Use a larger patch or a smaller ROI.`
+                : "Make each patch a selectable object that can carry a class"
+            }
+            onClick={() => {
+              const store = useAnnotations.getState();
+              const cls = store.ensureClass(PATCH_CLASS);
+              const side = shown.patchPx * shown.downsample;
+              const added = shown.patches.map((p) =>
+                makeAnnotation(
+                  {
+                    type: "Polygon",
+                    coordinates: [[
+                      [p.x, p.y],
+                      [p.x + side, p.y],
+                      [p.x + side, p.y + side],
+                      [p.x, p.y + side],
+                      [p.x, p.y],
+                    ]],
+                  },
+                  {
+                    classId: cls.id,
+                    source: "model",
+                    modelId: PATCH_MODEL_ID,
+                    name: `${p.col},${p.row}`,
+                  },
+                ),
+              );
+              // Re-running replaces the previous grid's objects rather than
+              // laying a second set on top of the first.
+              const previous = [...store.items.values()].filter(
+                (a) => a.modelId === PATCH_MODEL_ID && !a.locked,
+              );
+              store.apply({
+                label: `Patch objects (${added.length})`,
+                removed: previous,
+                added,
+              });
+            }}
+          >
+            Make {shown.patches.length.toLocaleString()} patch object
+            {shown.patches.length === 1 ? "" : "s"}
+          </button>
+          <div className="picker-hint">
+            Each becomes a region in the <b>{PATCH_CLASS}</b> class that you can select, drag by
+            its corners, and classify — so a model's answer lands on a patch you were able to
+            correct first, and it exports with everything else.
+          </div>
+
           <div className="row-actions">
             <button
               className="btn"
