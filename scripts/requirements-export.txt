@@ -23,6 +23,9 @@
 #
 torch>=2.2
 onnx>=1.16
+# torch's ONNX exporter imports this at export time, not at install time, so a
+# missing copy surfaces only after the weights have been downloaded.
+onnxscript>=0.1
 huggingface_hub>=0.24
 safetensors>=0.4
 transformers>=4.40

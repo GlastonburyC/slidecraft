@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import pathlib
 import sys
 
 REQUIREMENTS = "pip install torch timm onnx huggingface_hub"
@@ -40,7 +41,20 @@ def main() -> None:
     ap.add_argument("model", help="Hugging Face repo id, e.g. MahmoodLab/UNI")
     ap.add_argument("--out", default=None, help="output .onnx path (default: <name>.onnx)")
     ap.add_argument("--size", type=int, default=224, help="square input size in pixels (default 224)")
-    ap.add_argument("--opset", type=int, default=17)
+    # 18, not 17: torch traces these encoders at 18 and then down-converts,
+    # and the conversion emits a Split node the ONNX checker rejects. Asking
+    # for 18 up front skips a lossy step that produces an invalid graph.
+    ap.add_argument("--opset", type=int, default=18)
+    ap.add_argument(
+        "--fp16",
+        action="store_true",
+        help=(
+            "Halve the file. A ViT-H at fp32 is around 2.5 GB, which passes "
+            "ONNX's 2 GB single-file limit and spills into a sidecar .onnx.data "
+            "the browser loader cannot take — and would not fit a 32-bit wasm "
+            "heap even if it could."
+        ),
+    )
     ap.add_argument(
         "--preset",
         choices=["auto", "plain", "uni2", "virchow2"],
@@ -170,7 +184,12 @@ def main() -> None:
     std = [round(v * 255, 4) for v in cfg.get("std", (0.229, 0.224, 0.225))]
     size = args.size or cfg.get("input_size", (3, 224, 224))[-1]
 
-    dummy = torch.zeros(1, 3, size, size)
+    if args.fp16:
+        model = model.half()
+        print("exporting in fp16", file=sys.stderr)
+
+    dtype = torch.float16 if args.fp16 else torch.float32
+    dummy = torch.zeros(1, 3, size, size, dtype=dtype)
     with torch.no_grad():
         dim = int(model(dummy).shape[-1])
 
@@ -201,6 +220,30 @@ def main() -> None:
     except Exception as exc:  # noqa: BLE001
         die(f"the exported graph did not validate: {exc}")
 
+    # torch writes the weights into a sidecar .onnx.data whenever the model is
+    # large, whatever its actual size. The app loads one file, so anything that
+    # still fits ONNX's 2 GB single-file limit is folded back in — otherwise a
+    # perfectly good export is unusable for the sake of a default.
+    data_file = pathlib.Path(f"{out}.data")
+    if data_file.exists():
+        total = pathlib.Path(out).stat().st_size + data_file.stat().st_size
+        if total < 2 * 1024**3:
+            try:
+                import onnx as _onnx
+
+                print(f"folding {data_file.name} back into a single file …", file=sys.stderr)
+                model_proto = _onnx.load(out, load_external_data=True)
+                _onnx.save_model(model_proto, out, save_as_external_data=False)
+                data_file.unlink()
+            except Exception as exc:  # noqa: BLE001 - the sidecar is still valid
+                print(f"could not consolidate ({exc}); keeping {data_file.name}", file=sys.stderr)
+        else:
+            print(
+                f"weights stay in {data_file.name}: {total / 1024**3:.2f} GB is past ONNX's "
+                "2 GB single-file limit. Re-run with --fp16 for a single file.",
+                file=sys.stderr,
+            )
+
     meta = {
         "name": args.model.split("/")[-1],
         "inputSize": size,
@@ -210,6 +253,10 @@ def main() -> None:
         "normalise": "custom" if mean != [123.675, 116.28, 103.53] else "imagenet",
         "preset": preset,
         "task": "encode",
+        "precision": "fp16" if args.fp16 else "fp32",
+        # A ViT-H is minutes per patch on wasm and seconds on WebGPU; the
+        # fallback still exists, and the app reports which one it got.
+        "backend": "webgpu",
         "source": args.model,
     }
     sidecar = f"{out}.json"
@@ -219,7 +266,7 @@ def main() -> None:
     size_mb = os.path.getsize(out) / 1e6
     print(
         f"\nwrote {out} ({size_mb:.0f} MB) and {sidecar}\n\n"
-        f"In Slidecraft: right-click the click-to-segment tool -> Import ONNX…\n"
+        f"In Slidecraft: Models -> Import ONNX…, giving it both the .onnx and its .onnx.json\n"
         f"  Name        {meta['name']}\n"
         f"  Encoder     {out}\n"
         f"  Input px    {size}\n"
