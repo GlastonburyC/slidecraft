@@ -147,9 +147,17 @@ function spearman(aRanks: Float64Array, bRanks: Float64Array): number {
   return va > 0 && vb > 0 ? num / Math.sqrt(va * vb) : 0;
 }
 
+/**
+ * Correlate each column against position, one at a time.
+ *
+ * `column(i)` fills and returns a reusable buffer rather than a new array per
+ * item: a whole transcriptome is 19,338 columns, and materialising them all
+ * before correlating any costs about 90 MB for no reason — every one is read
+ * once and never looked at again.
+ */
 function assemble(
   names: string[],
-  columns: Float32Array[],
+  column: (i: number) => Float32Array,
   along: AxisPatch[],
   kind: "gene" | "signature",
   lengthPx: number,
@@ -165,12 +173,25 @@ function assemble(
 
   const items: GradientStat[] = [];
   const ps: number[] = [];
-  for (let c = 0; c < columns.length; c++) {
-    const col = columns[c];
-    const rho = spearman(ranksOf(col), tRanks);
+  for (let c = 0; c < names.length; c++) {
+    const col = column(c);
+
+    /*
+     * A column that never changes correlates with nothing, and ranking it
+     * would sort a thousand identical values to prove it. Worth the check: a
+     * whole-transcriptome map holds thousands of genes the model predicts flat
+     * across any given corridor, and the sort is what the whole pass costs.
+     */
+    let flat = true;
+    for (let i = 1; i < col.length; i++) {
+      if (col[i] !== col[0]) { flat = false; break; }
+    }
+    const rho = flat ? 0 : spearman(ranksOf(col), tRanks);
     // Fisher's z, the usual large-sample approximation for Spearman.
     const z = Math.abs(rho) >= 1 ? Infinity : Math.atanh(rho) * Math.sqrt(n - 3);
     const p = n > 3 && Number.isFinite(z) ? Math.min(1, 2 * normalSf(Math.abs(z))) : 1;
+    // Taken now, from the buffer this column currently occupies — it is
+    // overwritten by the next one.
     const mean = (set: AxisPatch[]) =>
       set.reduce((s, a) => s + col[pos.get(a.index)!], 0) / set.length;
     items.push({ name: names[c], rho, meanStart: mean(startIdx), meanEnd: mean(endIdx), p, q: 1 });
@@ -215,13 +236,15 @@ export function geneGradient(
   check(along);
 
   const stride = result.genes.length;
-  const columns = result.genes.map((_, g) => {
-    const col = new Float32Array(along.length);
-    along.forEach((a, i) => { col[i] = valueAt(result, a.index * stride + g); });
-    return col;
-  });
+  const buffer = new Float32Array(along.length);
+  const column = (g: number) => {
+    for (let i = 0; i < along.length; i++) {
+      buffer[i] = valueAt(result, along[i].index * stride + g);
+    }
+    return buffer;
+  };
   const len = axisLength(axis);
-  return assemble(result.genes, columns, along, "gene", len, mppX ? len * mppX : null);
+  return assemble(result.genes, column, along, "gene", len, mppX ? len * mppX : null);
 }
 
 /** Which cell types change along the axis. */
@@ -237,23 +260,27 @@ export function signatureGradient(
   check(along);
 
   const names: string[] = [];
-  const columns: Float32Array[] = [];
+  const scored: Float32Array[] = [];
   for (const signature of signatures) {
     // Scored over every patch, then cut down to the corridor: the
     // standardisation inside scoreSignature has to see the whole slide, or each
     // axis would be centred on its own contents and stop being comparable.
     const full = score(result, signature);
     if (!full) continue;
-    const col = new Float32Array(along.length);
-    along.forEach((a, i) => { col[i] = full[a.index]; });
     names.push(signature.name);
-    columns.push(col);
+    scored.push(full);
   }
-  if (!columns.length) {
+  if (!scored.length) {
     throw new NoPatchesAlongAxis("None of these signatures share enough genes with this map.");
   }
+
+  const buffer = new Float32Array(along.length);
+  const column = (c: number) => {
+    for (let i = 0; i < along.length; i++) buffer[i] = scored[c][along[i].index];
+    return buffer;
+  };
   const len = axisLength(axis);
-  return assemble(names, columns, along, "signature", len, mppX ? len * mppX : null);
+  return assemble(names, column, along, "signature", len, mppX ? len * mppX : null);
 }
 
 export function gradientCsv(result: GradientResult, axis: string): string {

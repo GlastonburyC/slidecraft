@@ -60,6 +60,7 @@ export function SpatialPanel({
   const [regionName, setRegionName] = useState("");
   const [gradient, setGradient] = useState<GradientResult | null>(null);
   const [gradientError, setGradientError] = useState<string | null>(null);
+  const [gradientBusy, setGradientBusy] = useState<string | null>(null);
   /**
    * Corridor half-width, in patches rather than pixels.
    *
@@ -138,20 +139,41 @@ export function SpatialPanel({
     return picked.length ? picked[picked.length - 1] : (axes[axes.length - 1] ?? null);
   }, [axes, selection]);
 
+  /**
+   * Rank what changes along the axis.
+   *
+   * Ranking a whole transcriptome is seconds of work on the main thread —
+   * 19,338 columns, each sorted to get its ranks — and a button that does not
+   * come back for six seconds reads as broken rather than busy. So the busy
+   * state is painted first and the work starts on the next frame, which is the
+   * difference between a frozen window and a visibly working one.
+   */
   const runGradient = (kind: "gene" | "signature") => {
-    if (!result || !axis) return;
+    if (!result || !axis || gradientBusy) return;
     setGradientError(null);
-    try {
-      const width = corridor * result.side;
-      setGradient(
-        kind === "signature"
-          ? signatureGradient(result, axis, width, meta.mppX, signatures.signatures, scoreSignature)
-          : geneGradient(result, axis, width, meta.mppX),
-      );
-    } catch (err) {
-      setGradient(null);
-      setGradientError(err instanceof Error ? err.message : String(err));
-    }
+    const n = kind === "signature" ? signatures.signatures.length : result.genes.length;
+    setGradientBusy(
+      `Ranking ${n.toLocaleString()} ${kind === "signature" ? "cell types" : "genes"}…`,
+    );
+
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        try {
+          const width = corridor * result.side;
+          setGradient(
+            kind === "signature"
+              ? signatureGradient(
+                  result, axis, width, meta.mppX, signatures.signatures, scoreSignature)
+              : geneGradient(result, axis, width, meta.mppX),
+          );
+        } catch (err) {
+          setGradient(null);
+          setGradientError(err instanceof Error ? err.message : String(err));
+        } finally {
+          setGradientBusy(null);
+        }
+      }, 0);
+    });
   };
 
   const shown = onTissueOnly && onTissue
@@ -627,14 +649,27 @@ export function SpatialPanel({
                 . Patches outside the band, or beyond either end, are not counted.
               </div>
               <div className="row-actions">
-                <button className="btn" onClick={() => runGradient("signature")}>
+                <button
+                  className="btn"
+                  disabled={!!gradientBusy}
+                  onClick={() => runGradient("signature")}
+                >
                   Which cell types change?
                 </button>
-                <button className="btn" onClick={() => runGradient("gene")}>
+                <button
+                  className="btn"
+                  disabled={!!gradientBusy}
+                  onClick={() => runGradient("gene")}
+                >
                   Which genes?
                 </button>
               </div>
             </>
+          )}
+          {gradientBusy && (
+            <div className="hint notice">
+              <span className="spinner" /> {gradientBusy}
+            </div>
           )}
           {gradientError && <div className="note warn">{gradientError}</div>}
 
