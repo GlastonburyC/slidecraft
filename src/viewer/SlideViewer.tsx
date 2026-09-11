@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import OpenSeadragon from "openseadragon";
 import { useAnnotations } from "../annotate/store";
+import { buildPatchGrid } from "../ml/patchGrid";
 import { ToolController } from "../annotate/toolController";
 import type { SlideSource } from "../slide/types";
 import { AnnotationOverlay } from "./annotationOverlay";
@@ -72,7 +73,46 @@ export function SlideViewer({ source, onStats, onSegmenter, onFocuser }: Props) 
 
     const overlay = new AnnotationOverlay(viewer, canvas, offset);
     const segmenter = new SegmentController(viewer, source, overlay, offset);
-    const controller = new ToolController(viewer, input, overlay, offset, segmenter);
+    /**
+     * Lay the grid for a region the patch tool just drew.
+     *
+     * State is read at call time rather than captured: the controller is built
+     * once per slide, and the patch size is chosen after that — a closure over
+     * the size at construction would tile every region at whatever it was when
+     * the slide opened.
+     */
+    const layPatchGrid = (roiId: string) => {
+      const { items, classes } = useAnnotations.getState();
+      const roi = items.get(roiId);
+      if (!roi) return;
+
+      const { patchPx, patchLevel, patchesOnTissueOnly, setGrid } = useMl.getState();
+      const meta = source.meta;
+      const level = meta.levels[Math.min(patchLevel, meta.levels.length - 1)];
+      const tissueClass = classes.find((c) => c.name.toLowerCase() === "tissue");
+      const tissue = tissueClass
+        ? [...items.values()].filter((a) => a.classId === tissueClass.id)
+        : [];
+
+      const [minX, minY, maxX, maxY] = roi.bbox;
+      const grid = buildPatchGrid(
+        { x: minX, y: minY, width: maxX - minX, height: maxY - minY },
+        level?.downsample ?? 1,
+        meta.mppX,
+        {
+          patchPx,
+          level: level?.level ?? 0,
+          within: [roi],
+          restrictTo: patchesOnTissueOnly && tissue.length > 0 ? tissue : undefined,
+          bounds: meta.bounds,
+        },
+      );
+      setGrid({ roiId: roi.id, grid });
+    };
+
+    const controller = new ToolController(
+      viewer, input, overlay, offset, segmenter, layPatchGrid,
+    );
     onSegmenter?.(segmenter);
     void segmenter.refreshCacheStatus();
 

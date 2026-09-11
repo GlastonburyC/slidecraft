@@ -22,6 +22,7 @@ const TOOLS: ToolSpec[] = [
   { id: "point", key: "n", label: "Point", hint: "Drop a counting point", path: "M10 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8zM10 12v5" },
   { id: "segment", key: "g", label: "Click-to-segment", hint: "Click a cell centre and the model outlines it; Shift adds, Alt excludes", path: "M10 4.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11zM10 8.6a1.4 1.4 0 1 1 0 2.8 1.4 1.4 0 0 1 0-2.8zM10 2v2M10 16v2M2 10h2M16 10h2" },
   { id: "roi", key: "o", label: "ROI", hint: "Drag a region of interest for the ML loop", path: "M3.5 7V4.5H6M14 4.5h2.5V7M16.5 13v2.5H14M6 15.5H3.5V13" },
+  { id: "patch", key: "t", label: "Patch", hint: "Drag a region and it is tiled into patches at the chosen size", path: "M3.5 3.5h13v13h-13zM8 3.5v13M12 3.5v13M3.5 8h13M3.5 12h13" },
 ];
 
 export function Toolbar({

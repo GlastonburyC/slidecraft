@@ -13,7 +13,7 @@
  */
 
 export type SidebarTab =
-  | "slides" | "annotate" | "tissue" | "cells" | "predict" | "patches" | "spatial";
+  | "slides" | "annotate" | "tissue" | "cells" | "predict" | "spatial";
 
 interface TabDef {
   id: SidebarTab;
@@ -60,12 +60,6 @@ export const SIDEBAR_TABS: TabDef[] = [
     hint: "Predict spatial gene expression from the H&E",
     // A double helix, matching SpatialMark on the toolbar's 20-unit grid.
     path: "M6 3c0 4 8 4 8 7s-8 3-8 7M14 3c0 4-8 4-8 7s8 3 8 7M7.4 6.2h5.2M6.2 13.8h7.6",
-  },
-  {
-    id: "patches",
-    label: "Patches",
-    hint: "Lay a patch grid over an ROI",
-    path: "M3.5 3.5h5v5h-5zM11.5 3.5h5v5h-5zM3.5 11.5h5v5h-5zM11.5 11.5h5v5h-5z",
   },
 ];
 

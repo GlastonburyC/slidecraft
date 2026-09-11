@@ -687,3 +687,20 @@ h2.with-mark { display: flex; align-items: center; gap: 7px; }
 .de-auc[data-strong="true"] { color: var(--accent); }
 .sig-coverage { margin-left: auto; font: 9.5px/1 var(--mono); color: var(--text-faint); }
 .sig-coverage[data-thin="true"] { color: var(--warn); }
+
+/* ---------- patch tool options ---------- */
+
+/*
+ * Beside the tool rail, not in the sidebar: these belong to the tool that is
+ * held, and they are only on screen while it is. Positioned clear of the rail's
+ * right edge and capped in height so a long grid summary scrolls rather than
+ * running off the bottom of a laptop screen.
+ */
+.patch-options {
+  position: absolute; left: 62px; top: 50%; transform: translateY(-50%);
+  z-index: 10; width: 260px; max-height: 82vh; overflow-y: auto;
+  background: rgba(18,21,26,.94); backdrop-filter: blur(8px);
+  border: 1px solid var(--border); border-radius: 10px; padding: 12px;
+  box-shadow: 0 16px 40px rgba(0,0,0,.45);
+}
+.patch-options h2 { margin-top: 0; }

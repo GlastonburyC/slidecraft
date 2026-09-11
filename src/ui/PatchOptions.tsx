@@ -9,7 +9,13 @@ import {
 import type { SlideMeta } from "../slide/types";
 
 /**
- * Laying a patch grid over an ROI.
+ * Settings for the patch tool, and what to do with the grid it laid.
+ *
+ * These were a sidebar tab, which put the act of patching two steps away from
+ * the slide: pick a tab, pick an ROI, press a button. Patching is a thing you
+ * do TO a piece of tissue you are looking at, so it is a tool now — drag a
+ * region and it tiles — and this is the tool's own settings panel, on screen
+ * only while the tool is held.
  *
  * Patches are specified in pixels at a pyramid level — 128x128, 256x256 —
  * because that is how an encoder is defined: a ViT sees a fixed pixel tensor.
@@ -50,7 +56,7 @@ function download(text: string, filename: string, type: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function PatchPanel({ meta }: { meta: SlideMeta }) {
+export function PatchOptions({ meta }: { meta: SlideMeta }) {
   const items = useAnnotations((s) => s.items);
   const version = useAnnotations((s) => s.version);
   const selection = useAnnotations((s) => s.selection);
@@ -97,8 +103,12 @@ export function PatchPanel({ meta }: { meta: SlideMeta }) {
   const shown = grid && roi && grid.roiId === roi.id ? grid.grid : null;
 
   return (
-    <section className="section">
-      <h2>Patches</h2>
+    <section className="section patch-options">
+      <h2>Patch</h2>
+      <div className="picker-hint">
+        Drag on the slide to tile a region. These settings apply to the next one
+        you draw, and <b>Re-tile</b> applies them to the last.
+      </div>
 
       <label className="field">
         <span>Patch size</span>
@@ -147,9 +157,9 @@ export function PatchPanel({ meta }: { meta: SlideMeta }) {
           className="btn"
           onClick={lay}
           disabled={!roi}
-          title={roiHint(picked.total, roi) ?? "Lay the grid over this ROI"}
+          title={roiHint(picked.total, roi) ?? "Re-tile this region with the settings above"}
         >
-          {shown ? "Rebuild grid" : "Lay grid over ROI"}
+          Re-tile
         </button>
         <button className="btn" onClick={() => setGrid(null)} disabled={!grid}>
           Clear

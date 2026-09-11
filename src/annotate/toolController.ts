@@ -73,6 +73,8 @@ export class ToolController {
       discard: () => void;
       hasPending: () => boolean;
     },
+    /** Called with the ROI the patch tool just drew, to lay its grid. */
+    private readonly onPatch?: (roiId: string) => void,
   ) {
     element.addEventListener("pointerdown", this.onPointerDown);
     element.addEventListener("pointermove", this.onPointerMove);
@@ -138,7 +140,8 @@ export class ToolController {
 
   private activeColour(): [number, number, number] {
     const { tool, classes, activeClassId } = useAnnotations.getState();
-    if (tool === "roi") return ROI_COLOR;
+    // The patch tool draws an ROI, so its draft is the ROI's colour.
+    if (tool === "roi" || tool === "patch") return ROI_COLOR;
     return classes.find((c) => c.id === activeClassId)?.color ?? [200, 200, 200];
   }
 
@@ -489,7 +492,7 @@ export class ToolController {
     const { tool, brushRadius } = useAnnotations.getState();
     const colour = this.activeColour();
 
-    if (tool === "rectangle" || tool === "roi") {
+    if (tool === "rectangle" || tool === "roi" || tool === "patch") {
       const [x0, y0] = this.path[0];
       const [x1, y1] = cursor;
       this.overlay.setDraft({ kind: "polygon", rings: [rectRing(x0, y0, x1, y1)], color: colour });
@@ -572,11 +575,24 @@ export class ToolController {
     this.overlay.setDraft(null);
     if (path.length === 0) return;
 
-    if (tool === "rectangle" || tool === "roi") {
+    if (tool === "rectangle" || tool === "roi" || tool === "patch") {
       const [x0, y0] = path[0];
       const [x1, y1] = path[path.length - 1];
       if (Math.abs(x1 - x0) < 2 || Math.abs(y1 - y0) < 2) return;
-      this.commitArea({ type: "Polygon", coordinates: [rectRing(x0, y0, x1, y1)] }, tool === "roi");
+      const isRoi = tool === "roi" || tool === "patch";
+      const made = this.commitArea(
+        { type: "Polygon", coordinates: [rectRing(x0, y0, x1, y1)] }, isRoi,
+      );
+      /**
+       * Patching is drawn, not configured.
+       *
+       * The region is still an ROI — it is the frame the grid is laid in, and
+       * everything downstream asks "which ROI am I working in" — but the grid
+       * arrives with the drag instead of waiting for a button in a panel. The
+       * grid itself needs the slide's scale and levels, which this controller
+       * has no business knowing, so it is handed back out.
+       */
+      if (tool === "patch" && made) this.onPatch?.(made.id);
       return;
     }
 
@@ -601,7 +617,7 @@ export class ToolController {
   }
 
   private commitArea(geometry: Geometry, isRoi = false) {
-    if (isDegenerate(geometry)) return;
+    if (isDegenerate(geometry)) return null;
     const state = useAnnotations.getState();
     const a = makeAnnotation(geometry, {
       classId: isRoi ? ROI_CLASS_ID : state.activeClassId,
@@ -609,6 +625,7 @@ export class ToolController {
     state.apply({ label: isRoi ? "Add ROI" : "Add region", added: [a] });
     // Select it so "C" names the thing just drawn, with no extra click.
     state.select([a.id]);
+    return a;
   }
 
   /**

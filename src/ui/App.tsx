@@ -11,7 +11,7 @@ import { Toolbar } from "./Toolbar";
 import { AnnotationMenus } from "./AnnotationMenus";
 import { activeModel, TISSUE_CLASS } from "../ml/tissueTraining";
 import { ModelPanel } from "./ModelPanel";
-import { PatchPanel } from "./PatchPanel";
+import { PatchOptions } from "./PatchOptions";
 import { ImportSpatialDialog } from "./ImportSpatialDialog";
 import { SidebarTabs, type SidebarTab } from "./SidebarTabs";
 import { PredictPanel } from "./PredictPanel";
@@ -51,6 +51,7 @@ export function App() {
   const [spatial, setSpatial] = useState<SpatialController | null>(null);
   const [predictor, setPredictor] = useState<PredictController | null>(null);
   const [importingSpatial, setImportingSpatial] = useState(false);
+  const tool = useAnnotations((s) => s.tool);
   const annotationItems = useAnnotations((s) => s.items);
   const annotationVersion = useAnnotations((s) => s.version);
   const [loading, setLoading] = useState(false);
@@ -640,7 +641,6 @@ export function App() {
               onLoad={() => void segmenter.loadModel()}
             />
           )}
-          {tab === "patches" && source && <PatchPanel meta={source.meta} />}
           {tab === "predict" && source && (
             <PredictPanel meta={source.meta} controller={predictor} />
           )}
@@ -670,6 +670,7 @@ export function App() {
             <SlideViewer source={source} onStats={setStats} onSegmenter={setSegmenter}
               onFocuser={handleFocuser} />
             <Toolbar mppX={source.meta.mppX} />
+            {tool === "patch" && <PatchOptions meta={source.meta} />}
             <AnnotationMenus mppX={source.meta.mppX} />
           </>
         ) : (
