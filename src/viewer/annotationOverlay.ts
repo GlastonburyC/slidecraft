@@ -10,7 +10,7 @@ import { scoreSignature } from "../ml/signatures";
 import { useSpatial } from "../ml/spatialStore";
 import { usePredict } from "../ml/predictStore";
 import type { Annotation, Position, Ring } from "../annotate/types";
-import { ROI_CLASS_ID, ROI_COLOR } from "../annotate/types";
+import { AXIS_CLASS_ID, AXIS_COLOR, ROI_CLASS_ID, ROI_COLOR } from "../annotate/types";
 
 /** A shape being drawn but not yet committed. */
 export interface Draft {
@@ -213,10 +213,13 @@ export class AnnotationOverlay {
         }
       }
       const points: Annotation[] = [];
-      const paths: { id: string; path: Position[]; color: [number, number, number, number] }[] = [];
+      const paths: {
+        id: string; path: Position[]; color: [number, number, number, number]; width: number;
+      }[] = [];
 
       const colourOf = (a: Annotation): [number, number, number] => {
         if (a.classId === ROI_CLASS_ID) return ROI_COLOR;
+        if (a.classId === AXIS_CLASS_ID) return AXIS_COLOR;
         const cls = state.classes.find((c) => c.id === a.classId);
         return cls ? cls.color : [150, 150, 160];
       };
@@ -247,7 +250,47 @@ export class AnnotationOverlay {
         } else if (a.geometry.type === "Point") {
           points.push(a);
         } else {
-          paths.push({ id: a.id, path: a.geometry.coordinates, color: line });
+          // An axis is drawn to be followed across a whole section, so it is
+          // heavier than a plain imported line — a hairline over a coloured
+          // expression map is not findable.
+          const isAxis = a.classId === AXIS_CLASS_ID;
+          paths.push({
+            id: a.id, path: a.geometry.coordinates, color: line,
+            width: isAxis ? (selected ? 5 : 4) : width,
+          });
+          /**
+           * An axis gets a head, because its direction is the whole content.
+           *
+           * Every gradient reported along it is signed by which end is the
+           * start, and a plain line says nothing about that — so the reader
+           * would have no way to tell "rises toward the surface" from the
+           * opposite claim.
+           *
+           * Sized as a fraction of the line so it stays in proportion as the
+           * view zooms, with a floor so a short axis still shows one.
+           */
+          if (isAxis && a.geometry.coordinates.length >= 2) {
+            const pts = a.geometry.coordinates;
+            const [x0, y0] = pts[pts.length - 2];
+            const [x1, y1] = pts[pts.length - 1];
+            const dx = x1 - x0;
+            const dy = y1 - y0;
+            const len = Math.hypot(dx, dy) || 1;
+            const head = Math.max(len * 0.12, 24);
+            const ux = dx / len;
+            const uy = dy / len;
+            // Rotate the reversed direction by +/- 28 degrees for the barbs.
+            const rot = (ang: number): [number, number] => [
+              x1 + head * (-ux * Math.cos(ang) + uy * Math.sin(ang)),
+              y1 + head * (-uy * Math.cos(ang) - ux * Math.sin(ang)),
+            ];
+            const a1 = rot(0.49);
+            const a2 = rot(-0.49);
+            paths.push({
+              id: `${a.id}:head`, path: [a1, [x1, y1], a2], color: line,
+              width: selected ? 5 : 4,
+            });
+          }
         }
       }
 
@@ -282,9 +325,12 @@ export class AnnotationOverlay {
             data: paths,
             getPath: (d) => d.path,
             getColor: (d) => d.color,
-            getWidth: 2,
+            // Per entry, not fixed: an axis needs to be heavier than an
+            // imported outline, and this layer carries both.
+            getWidth: (d) => d.width,
             widthUnits: "pixels",
             widthMinPixels: 2,
+            updateTriggers: { getColor: selectionKey, getWidth: selectionKey },
           }),
         );
       }

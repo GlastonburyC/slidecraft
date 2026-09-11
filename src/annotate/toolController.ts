@@ -24,7 +24,9 @@ import {
   areaOf,
   containsPoint,
   isAreaGeometry,
+  AXIS_CLASS_ID,
   ROI_CLASS_ID,
+  AXIS_COLOR,
   ROI_COLOR,
   simplifyGeometry,
   type Annotation,
@@ -142,6 +144,7 @@ export class ToolController {
     const { tool, classes, activeClassId } = useAnnotations.getState();
     // The patch tool draws an ROI, so its draft is the ROI's colour.
     if (tool === "roi" || tool === "patch") return ROI_COLOR;
+    if (tool === "arrow") return AXIS_COLOR;
     return classes.find((c) => c.id === activeClassId)?.color ?? [200, 200, 200];
   }
 
@@ -498,6 +501,10 @@ export class ToolController {
       this.overlay.setDraft({ kind: "polygon", rings: [rectRing(x0, y0, x1, y1)], color: colour });
       return;
     }
+    if (tool === "arrow") {
+      this.overlay.setDraft({ kind: "path", path: [this.path[0], cursor], color: colour });
+      return;
+    }
     if (tool === "freehand") {
       this.overlay.setDraft({ kind: "path", path: this.path, color: colour });
       return;
@@ -593,6 +600,29 @@ export class ToolController {
        * has no business knowing, so it is handed back out.
        */
       if (tool === "patch" && made) this.onPatch?.(made.id);
+      return;
+    }
+
+    if (tool === "arrow") {
+      /**
+       * Two points, not the dragged path.
+       *
+       * An axis is a direction, and a wobbling hand would otherwise put every
+       * tremor into the geometry that the projection then has to average back
+       * out. Start and end are what was meant.
+       */
+      const from = path[0];
+      const to = path[path.length - 1];
+      const dx = to[0] - from[0];
+      const dy = to[1] - from[1];
+      if (Math.hypot(dx, dy) < 4) return;
+      const state = useAnnotations.getState();
+      const a = makeAnnotation(
+        { type: "LineString", coordinates: [from, to] },
+        { classId: AXIS_CLASS_ID },
+      );
+      state.apply({ label: "Add axis", added: [a] });
+      state.select([a.id]);
       return;
     }
 

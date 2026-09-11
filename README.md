@@ -8,7 +8,7 @@
 
 [![License](https://img.shields.io/badge/license-MIT-4fd1c5?style=flat-square)](LICENSE)
 [![Node](https://img.shields.io/badge/node-20%2B-4fd1c5?style=flat-square)](package.json)
-[![Tests](https://img.shields.io/badge/tests-290%20passing-4fd1c5?style=flat-square)](src/__tests__)
+[![Tests](https://img.shields.io/badge/tests-301%20passing-4fd1c5?style=flat-square)](src/__tests__)
 [![Slides](https://img.shields.io/badge/slides-never%20uploaded-8b949e?style=flat-square)](#privacy)
 
 [Tutorial](TUTORIAL.md) · [Roadmap](ROADMAP.md) · [Website](https://glastonburyc.github.io/slidecraft/)
@@ -46,6 +46,7 @@ wrong**, and retrain from those edits.
 | **Tiles what you drag** | Patching is a tool, not a dialog. Drag a region and it tiles at your chosen size, snapped to detected tissue, and every patch can become an editable object. |
 | **Predicts expression** | DeepSpot-M reads the H&E and answers with a value per gene. Fourteen cell-type modules ship built in, so a map is readable the moment it loads — or derive your own from a single-cell atlas. |
 | **Answers "what is this?"** | Draw round a region and rank the cell types over-represented in it, not just the genes. Mann-Whitney on module scores, ordered by effect size. |
+| **Follows a gradient** | Drag an arrow — crypt base to surface, mucosa to muscularis — and rank what rises and falls along it. Signed by which way the arrow points. |
 | **Reaches your cluster** | One command submits a whole slide to Slurm over SSH, watches the queue and brings the result back. Your keys and agent, never a password. |
 | **Runs over a folder** | Unattended, one GeoJSON per slide — or a whole transcriptome on your GPU cluster. |
 | **Speaks GeoJSON** | QuPath-compatible in both directions, so nothing dead-ends here. |
@@ -87,6 +88,7 @@ idea, and everything else is arranged around it.
 | Middle drag | Pan, with any tool active |
 | <kbd>B</kbd> | Brush — right-click the tool for size |
 | <kbd>O</kbd> | Draw an ROI; drag its corners to resize |
+| <kbd>A</kbd> | Axis — drag an arrow to read a gradient |
 | <kbd>T</kbd> | Patch — drag a region and it tiles |
 | <kbd>G</kbd> | Click-to-segment |
 | <kbd>1</kbd>–<kbd>9</kbd> | Switch class |
@@ -135,6 +137,21 @@ holds none of it.
 > distribution — mature-colonocyte markers in normal bowel, low-abundance
 > cytokines — can come back flat. Check the coverage counts before trusting a
 > module.
+
+## Along an axis
+
+Enrichment asks whether a region differs from the rest, which suits a thing
+with a boundary. Much of mucosa has none — expression varies *along* an axis,
+and splitting that into inside and outside throws away the ordering that was
+the signal. So press <kbd>A</kbd>, drag an arrow, and Slidecraft rank-correlates
+every gene or module against position along it.
+
+<img src="docs/shots/axis.jpg" alt="An axis drawn from mucosa to muscularis, with the cell types that change along it">
+
+Drawn from mucosa to wall on a colonic resection — 6 mm, 266 patches — this
+returns Goblet −0.86, Colonocyte −0.84, Crypt −0.84 and Epithelium −0.83 all
+falling, with Myeloid +0.77 and Vascular +0.73 rising. Reverse the arrow and
+every sign flips.
 
 ## Tiling
 
@@ -201,7 +218,7 @@ Runtime's wasm is self-hosted rather than loaded from a CDN.
 
 ```bash
 npm run dev            # dev server with the required headers
-npm test               # 290 tests, headless
+npm test               # 301 tests, headless
 npm run test:scripts   # the Python launcher's tests
 npm run build          # typecheck + production build
 ```

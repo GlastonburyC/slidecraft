@@ -63,6 +63,16 @@ export interface AnnotationClass {
 export const ROI_CLASS_ID = "__roi__";
 
 /**
+ * An axis is a LineString with a direction that means something.
+ *
+ * Flagged by class rather than inferred from the geometry, because an imported
+ * GeoJSON can hold lines that are outlines or measurements, and drawing an
+ * arrowhead on one — or reading a gradient along it — would be inventing an
+ * intent nobody expressed.
+ */
+export const AXIS_CLASS_ID = "__axis__";
+
+/**
  * Colours handed out to new classes, in order, skipping any already in use.
  * There are deliberately **no default classes** — a class scheme belongs to the
  * study, not to us, and pre-seeding one only invites people to annotate against
@@ -91,6 +101,9 @@ function hslToRgb(h: number, s: number, l: number): [number, number, number] {
 }
 
 export const ROI_COLOR: [number, number, number] = [76, 194, 196];
+
+/** Warm against the ROI's cyan, so an axis is not mistaken for a region. */
+export const AXIS_COLOR: [number, number, number] = [244, 162, 78];
 
 // ---------------------------------------------------------------- geometry ---
 

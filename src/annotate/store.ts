@@ -40,6 +40,7 @@ export type ToolId =
   | "point"
   | "roi"
   | "patch"
+  | "arrow"
   | "segment";
 
 /** Where a context menu or class picker was summoned, in client pixels. */

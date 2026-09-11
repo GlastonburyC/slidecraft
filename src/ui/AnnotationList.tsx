@@ -1,6 +1,8 @@
 import { useMemo, useState } from "react";
 import { useAnnotations } from "../annotate/store";
-import { areaOf, ROI_CLASS_ID, ROI_COLOR, type Annotation } from "../annotate/types";
+import {
+  areaOf, AXIS_CLASS_ID, AXIS_COLOR, ROI_CLASS_ID, ROI_COLOR, type Annotation,
+} from "../annotate/types";
 
 const rgb = (c: [number, number, number]) => `rgb(${c[0]},${c[1]},${c[2]})`;
 
@@ -42,11 +44,21 @@ export function AnnotationList({
     const q = query.trim().toLowerCase();
     return [...items.values()]
       .map((a) => {
-        const cls = a.classId === ROI_CLASS_ID ? null : a.classId ? byId.get(a.classId) : undefined;
+        const cls = a.classId === ROI_CLASS_ID || a.classId === AXIS_CLASS_ID
+          ? null
+          : a.classId ? byId.get(a.classId) : undefined;
         return {
           a,
-          label: a.name ?? (a.classId === ROI_CLASS_ID ? "ROI" : (cls?.name ?? "Unclassified")),
-          color: a.classId === ROI_CLASS_ID ? ROI_COLOR : (cls?.color ?? [150, 150, 160]),
+          label: a.name ?? (a.classId === ROI_CLASS_ID
+            ? "ROI"
+            : a.classId === AXIS_CLASS_ID
+              ? "Axis"
+              : (cls?.name ?? "Unclassified")),
+          color: a.classId === ROI_CLASS_ID
+            ? ROI_COLOR
+            : a.classId === AXIS_CLASS_ID
+              ? AXIS_COLOR
+              : (cls?.color ?? [150, 150, 160]),
           area: areaOf(a.geometry),
         };
       })

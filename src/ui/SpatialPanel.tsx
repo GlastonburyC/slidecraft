@@ -11,6 +11,9 @@ import {
   differentialExpression, differentialSignatures, enrichmentCsv, patchesInside,
   type EnrichmentResult,
 } from "../ml/enrichment";
+import {
+  axesIn, geneGradient, gradientCsv, signatureGradient, type GradientResult,
+} from "../ml/gradient";
 import { useSpatial } from "../ml/spatialStore";
 import type { SlideMeta } from "../slide/types";
 import { SpatialMark } from "./SpatialMark";
@@ -55,6 +58,17 @@ export function SpatialPanel({
   const [enrichment, setEnrichment] = useState<EnrichmentResult | null>(null);
   const [enrichmentError, setEnrichmentError] = useState<string | null>(null);
   const [regionName, setRegionName] = useState("");
+  const [gradient, setGradient] = useState<GradientResult | null>(null);
+  const [gradientError, setGradientError] = useState<string | null>(null);
+  /**
+   * Corridor half-width, in patches rather than pixels.
+   *
+   * The arrow says where to look; this says how wide a band around it counts.
+   * Expressed in patches because that is the unit the answer is computed in —
+   * "three patches either side" states how much averaging is happening, where
+   * a figure in microns hides it.
+   */
+  const [corridor, setCorridor] = useState(3);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const picked = useMemo(() => pickRoi(items, selection), [version, selection, items]);
@@ -113,6 +127,30 @@ export function SpatialPanel({
     } catch (err) {
       setEnrichment(null);
       setEnrichmentError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const axes = useMemo(() => axesIn(items.values()), [version, items]);
+  // The selected axis, or the last one drawn — the same rule ROIs follow.
+  const axis = useMemo(() => {
+    const picked = axes.filter((a) => selection.has(a.id));
+    return picked.length ? picked[picked.length - 1] : (axes[axes.length - 1] ?? null);
+  }, [axes, selection]);
+
+  const runGradient = (kind: "gene" | "signature") => {
+    if (!result || !axis) return;
+    setGradientError(null);
+    try {
+      const width = corridor * result.side;
+      setGradient(
+        kind === "signature"
+          ? signatureGradient(result, axis, width, meta.mppX, signatures.signatures, scoreSignature)
+          : geneGradient(result, axis, width, meta.mppX),
+      );
+    } catch (err) {
+      setGradient(null);
+      setGradientError(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -536,6 +574,125 @@ export function SpatialPanel({
             map exists to serve — the map shows one gene at a time, and this says
             which gene to look at.
           */}
+          {/*
+            * A gradient answers what enrichment cannot.
+            *
+            * Enrichment asks whether a region differs from the rest, which
+            * suits a thing with a boundary. Much of mucosa has none: expression
+            * varies ALONG an axis — crypt base to surface, mucosa to
+            * muscularis — and splitting that into inside and outside discards
+            * the ordering, which was the signal.
+            */}
+          <div className="model-group-head">Change along an axis</div>
+          {axes.length === 0 ? (
+            <div className="hint">
+              Press <kbd>A</kbd> and drag an arrow across the tissue — crypt base to surface, say
+              — and this ranks what rises and falls along it.
+            </div>
+          ) : (
+            <>
+              <div className="hint">
+                {axes.length === 1
+                  ? "1 axis on this slide"
+                  : `${axes.length} axes · ${axes.some((a) => selection.has(a.id))
+                      ? "using the selected one"
+                      : "using the most recent; select one to choose"}`}
+                {axis && meta.mppX
+                  ? ` · ${(Math.hypot(
+                      axis.geometry.type === "LineString"
+                        ? axis.geometry.coordinates[axis.geometry.coordinates.length - 1][0]
+                          - axis.geometry.coordinates[0][0] : 0,
+                      axis.geometry.type === "LineString"
+                        ? axis.geometry.coordinates[axis.geometry.coordinates.length - 1][1]
+                          - axis.geometry.coordinates[0][1] : 0,
+                    ) * meta.mppX / 1000).toFixed(2)} mm long`
+                  : ""}
+              </div>
+              <label className="field">
+                <span>Corridor</span>
+                <input
+                  type="range"
+                  min={1}
+                  max={12}
+                  step={1}
+                  value={corridor}
+                  onChange={(e) => setCorridor(Number(e.target.value))}
+                />
+              </label>
+              <div className="picker-hint">
+                {corridor} patch{corridor === 1 ? "" : "es"} either side of the arrow
+                {meta.mppX && result
+                  ? ` · ${Math.round(corridor * result.side * meta.mppX)} µm`
+                  : ""}
+                . Patches outside the band, or beyond either end, are not counted.
+              </div>
+              <div className="row-actions">
+                <button className="btn" onClick={() => runGradient("signature")}>
+                  Which cell types change?
+                </button>
+                <button className="btn" onClick={() => runGradient("gene")}>
+                  Which genes?
+                </button>
+              </div>
+            </>
+          )}
+          {gradientError && <div className="note warn">{gradientError}</div>}
+
+          {gradient && (
+            <>
+              <div className="hint">
+                {gradient.used} patches along the axis
+                {gradient.lengthUm ? ` · ${(gradient.lengthUm / 1000).toFixed(2)} mm` : ""}
+              </div>
+              <div className="scroll-list scroll-list--short">
+                <div className="de-row de-head">
+                  <span>{gradient.kind === "signature" ? "cell type" : "gene"}</span>
+                  <span>rho</span><span>start→end</span><span>q</span>
+                </div>
+                {gradient.items.slice(0, 60).map((g) => (
+                  <button
+                    key={g.name}
+                    className="de-row"
+                    onClick={() =>
+                      gradient.kind === "signature" ? setSignatureName(g.name) : setGene(g.name)
+                    }
+                    title="Show this on the slide"
+                  >
+                    <span className="gene-name">{g.name}</span>
+                    <span className="de-auc" data-strong={Math.abs(g.rho) > 0.5}>
+                      {g.rho > 0 ? "+" : ""}{g.rho.toFixed(2)}
+                    </span>
+                    <span className="de-diff">
+                      {g.meanStart.toFixed(1)}→{g.meanEnd.toFixed(1)}
+                    </span>
+                    <span className="de-q">{g.q < 0.001 ? "<1e-3" : g.q.toFixed(3)}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="picker-hint">
+                Spearman against position along the arrow: <b>positive rises toward the
+                head</b>. Reverse the arrow and every sign flips. The q-values carry the same
+                caveat as the region test and then some — patches along one axis are neighbours,
+                so they are about as far from independent as patches get.
+              </div>
+              <div className="row-actions">
+                <button
+                  className="btn"
+                  onClick={() =>
+                    saveText(
+                      gradientCsv(gradient, "axis"),
+                      `${result.slide.replace(/\.[^.]+$/, "")}.gradient.csv`,
+                      "text/csv",
+                    )
+                  }
+                >
+                  Export CSV
+                </button>
+                <button className="btn" onClick={() => setGradient(null)}>Clear</button>
+              </div>
+            </>
+          )}
+
           <div className="model-group-head">Enrichment in a region</div>
           {selected.length === 0 ? (
             <div className="hint">
