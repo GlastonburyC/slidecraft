@@ -3,16 +3,28 @@ import type { Patch } from "./patchGrid";
 /**
  * Predicted expression over a patch grid.
  *
- * Stored as one flat Float32Array rather than an object per patch: a grid runs
- * to thousands of patches and a colour pass touches every value on every
- * change of gene, so the layout that matters is the one that iterates without
- * chasing pointers.
+ * Stored as one flat array rather than an object per patch: a grid runs to
+ * thousands of patches and a colour pass touches every value on every change
+ * of gene, so the layout that matters is the one that iterates without chasing
+ * pointers.
+ *
+ * A whole-transcriptome map is kept in the half precision it arrived in, and
+ * decoded one gene at a time. 32,054 patches by 19,338 genes is 620 million
+ * values: 1.2 GB as fp16 and 2.5 GB widened to fp32, on top of the file buffer
+ * itself — which no browser tab survives, to expand 19,338 genes when one is
+ * on screen. Decoding a gene's column costs a pass over the patches, which is
+ * what drawing it costs anyway.
  */
 export interface SpatialResult {
   /** Gene symbols, in the order the model returns them. */
   genes: string[];
-  /** `patches.length * genes.length` values, row-major by patch. */
-  values: Float32Array;
+  /**
+   * `patches.length * genes.length` values, row-major by patch. Half-precision
+   * when `half` is set — read it through `valueAt` rather than indexing.
+   */
+  values: Float32Array | Uint16Array;
+  /** Whether `values` holds IEEE half bit patterns rather than numbers. */
+  half?: boolean;
   patches: Patch[];
   /** Side of a patch in level-0 slide pixels, for drawing. */
   side: number;
@@ -23,6 +35,23 @@ export interface SpatialResult {
   roiId: string | null;
   ms: number;
   createdAt: string;
+}
+
+
+/** IEEE half to double. */
+export function fromHalf(bits: number): number {
+  const sign = bits & 0x8000 ? -1 : 1;
+  const exponent = (bits & 0x7c00) >> 10;
+  const fraction = bits & 0x03ff;
+  if (exponent === 0) return sign * Math.pow(2, -14) * (fraction / 1024);
+  if (exponent === 31) return fraction ? NaN : sign * Infinity;
+  return sign * Math.pow(2, exponent - 15) * (1 + fraction / 1024);
+}
+
+/** One value out of the flat array, whichever precision it is stored in. */
+export function valueAt(result: SpatialResult, k: number): number {
+  const v = result.values[k];
+  return result.half ? fromHalf(v) : v;
 }
 
 export function geneIndex(result: SpatialResult, gene: string): number {
@@ -36,7 +65,7 @@ export function geneValues(result: SpatialResult, gene: string): Float32Array | 
   const n = result.patches.length;
   const stride = result.genes.length;
   const out = new Float32Array(n);
-  for (let i = 0; i < n; i++) out[i] = result.values[i * stride + g];
+  for (let i = 0; i < n; i++) out[i] = valueAt(result, i * stride + g);
   return out;
 }
 
@@ -97,10 +126,8 @@ export function toCsv(result: SpatialResult): string {
   const head = ["patch", "col", "row", "x", "y", "size", ...result.genes].join(",");
   const stride = result.genes.length;
   const rows = result.patches.map((p, i) => {
-    const vals = Array.from(
-      result.values.subarray(i * stride, (i + 1) * stride),
-      (v) => v.toFixed(5),
-    );
+    const vals: string[] = [];
+    for (let g = 0; g < stride; g++) vals.push(valueAt(result, i * stride + g).toFixed(5));
     return [p.index, p.col, p.row, p.x, p.y, result.side, ...vals].join(",");
   });
   return `${head}\n${rows.join("\n")}\n`;

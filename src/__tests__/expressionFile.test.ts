@@ -117,3 +117,78 @@ describe("pairing a map to its slide", () => {
     expect(slide.expression).toBe(null);
   });
 });
+
+describe("a whole-transcriptome map", () => {
+  /**
+   * The reason this file does not widen or copy.
+   *
+   * 32,054 patches by 19,338 genes is 620 million values. Widening them to
+   * fp32 on load costs 2.5 GB and the slice that used to feed it another 1.2 GB
+   * on top of the 1.2 GB buffer — about 5 GB to put one gene on screen. These
+   * pin the two properties that avoid it: the halves are kept as halves, and
+   * the array is a view onto the original buffer rather than a copy of it.
+   */
+  function build(nPatches: number, nGenes: number, pad = 0) {
+    const genes = Array.from({ length: nGenes }, (_, i) => `G${i}`);
+    const header = {
+      slide: "s.svs",
+      genes,
+      patches: Array.from({ length: nPatches }, (_, i) => ({ x: i * 10, y: 0 })),
+      side: 10,
+      dtype: "float16",
+      model: "test",
+      // Padding lets a test force an odd header length.
+      ...(pad ? { pad: "x".repeat(pad) } : {}),
+    };
+    const json = new TextEncoder().encode(JSON.stringify(header));
+    const count = nPatches * nGenes;
+    const buf = new ArrayBuffer(12 + json.length + count * 2);
+    const b = new Uint8Array(buf);
+    b.set(new TextEncoder().encode("SCEXPR1\0"), 0);
+    new DataView(buf).setUint32(8, json.length, true);
+    b.set(json, 12);
+    // Through a DataView, because a Uint16Array view cannot start on an odd
+    // byte — the very constraint the parser has to cope with, so the fixture
+    // must not depend on being aligned either.
+    // 0x3C00 is 1.0 in IEEE half; 0x4000 is 2.0.
+    const dv = new DataView(buf);
+    const base = 12 + json.length;
+    for (let i = 0; i < count; i++) dv.setUint16(base + i * 2, i % 2 ? 0x4000 : 0x3c00, true);
+    return { buf, json };
+  }
+
+  it("keeps half precision as halves, viewing the buffer it was given", () => {
+    const { buf, json } = build(4, 3);
+    const result = parseExpressionFile(buf);
+    expect(result.half).toBe(true);
+    expect(result.values).toBeInstanceOf(Uint16Array);
+    // The decisive check: a view shares the buffer, a copy does not.
+    if ((12 + json.length) % 2 === 0) {
+      expect(result.values.buffer).toBe(buf);
+      expect(result.values.byteLength).toBe(4 * 3 * 2);
+    }
+  });
+
+  it("decodes those halves correctly when a gene is read", () => {
+    const { buf } = build(4, 3);
+    const result = parseExpressionFile(buf);
+    // Gene 0 of patch 0 is index 0 -> 1.0; gene 1 is index 1 -> 2.0.
+    expect(geneValues(result, "G0")![0]).toBe(1);
+    expect(geneValues(result, "G1")![0]).toBe(2);
+  });
+
+  it("copies rather than misaligning when the header length is odd", () => {
+    // A Uint16Array view must start on an even byte. Find a padding that makes
+    // the payload start odd, and check it still parses.
+    let made: ReturnType<typeof build> | null = null;
+    for (let pad = 0; pad < 8; pad++) {
+      const candidate = build(4, 3, pad);
+      if ((12 + candidate.json.length) % 2 === 1) { made = candidate; break; }
+    }
+    expect(made).not.toBeNull();
+    const result = parseExpressionFile(made!.buf);
+    expect(result.half).toBe(true);
+    expect(geneValues(result, "G0")![0]).toBe(1);
+    expect(geneValues(result, "G1")![0]).toBe(2);
+  });
+});

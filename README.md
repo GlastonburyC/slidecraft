@@ -8,7 +8,7 @@
 
 [![License](https://img.shields.io/badge/license-MIT-4fd1c5?style=flat-square)](LICENSE)
 [![Node](https://img.shields.io/badge/node-20%2B-4fd1c5?style=flat-square)](package.json)
-[![Tests](https://img.shields.io/badge/tests-277%20passing-4fd1c5?style=flat-square)](src/__tests__)
+[![Tests](https://img.shields.io/badge/tests-280%20passing-4fd1c5?style=flat-square)](src/__tests__)
 [![Slides](https://img.shields.io/badge/slides-never%20uploaded-8b949e?style=flat-square)](#privacy)
 
 [Tutorial](TUTORIAL.md) · [Roadmap](ROADMAP.md) · [Website](https://glastonburyc.github.io/slidecraft/)
@@ -195,7 +195,7 @@ Runtime's wasm is self-hosted rather than loaded from a CDN.
 
 ```bash
 npm run dev            # dev server with the required headers
-npm test               # 277 tests, headless
+npm test               # 280 tests, headless
 npm run test:scripts   # the Python launcher's tests
 npm run build          # typecheck + production build
 ```

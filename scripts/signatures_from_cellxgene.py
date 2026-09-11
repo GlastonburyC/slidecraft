@@ -55,8 +55,14 @@ import re
 # MT followed by a digit would take the metallothioneins with it -- MT1G, MT2A
 # -- and those are real genes, induced in inflamed mucosa.
 JUNK = re.compile(
-    r"^(MT-|RP[SL][0-9]|MRP[SL][0-9]|ENSG[0-9]|LINC[0-9]|"
-    r"MALAT1$|NEAT1$|XIST$|EEF1[AG][0-9]?$|TMSB4X$|B2M$|ACTB$|GAPDH$)"
+    r"^("
+    r"MT-"                       # mitochondrial proper: MT-ND1, MT-CO1
+    r"|MT(ATP|CO|CYB|ND|RNR)[0-9]"   # and their pseudogenes: MTATP6P1, MTND1P23
+    r"|RP[SL][0-9P]|RPSA$"       # ribosomal, including RPLP1/RPLP2/RPSA
+    r"|MRP[SL][0-9]"
+    r"|ENSG[0-9]|LINC[0-9-]"     # unnamed accessions; LINC-PINT carries a hyphen
+    r"|MALAT1$|NEAT1$|XIST$|EEF1[AG][0-9]?$|TMSB4X$|B2M$|ACTB$|GAPDH$"
+    r")"
 )
 
 

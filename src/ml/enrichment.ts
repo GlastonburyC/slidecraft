@@ -1,5 +1,5 @@
 import { containsPoint, isAreaGeometry, type Annotation } from "../annotate/types";
-import type { SpatialResult } from "./spatialResult";
+import { valueAt, type SpatialResult } from "./spatialResult";
 
 /**
  * Which genes are enriched in a region you drew.
@@ -138,7 +138,7 @@ export function differentialExpression(
   const ps: number[] = [];
 
   for (let g = 0; g < stride; g++) {
-    for (let i = 0; i < n; i++) values[i] = result.values[i * stride + g];
+    for (let i = 0; i < n; i++) values[i] = valueAt(result, i * stride + g);
 
     let sumIn = 0;
     let sumOut = 0;

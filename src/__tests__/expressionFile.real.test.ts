@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { parseExpressionFile } from "../io/expressionFile";
+import { geneValues } from "../ml/spatialResult";
 
 // A map produced by the real thing: scripts/predict_expression.py over
 // 1480_E1-1_L1-3.svs on a cluster V100, DeepSpot-M with the scgpt pathway.
@@ -27,8 +28,12 @@ describe.runIf(FILE && existsSync(FILE))("a map written by the GPU script", () =
     // compared will look like they can.
     expect(result.modelId).toContain("scgpt");
 
-    // fp16 through the half-decoder, against what the writer measured.
-    const epcam = result.values.filter((_, i) => i % 8 === 0);
+    // fp16 stays fp16 in memory; geneValues is what decodes a column.
+    expect(result.half).toBe(true);
+    expect(result.values).toBeInstanceOf(Uint16Array);
+
+    const epcam = geneValues(result, "EPCAM")!;
+    expect(epcam.length).toBe(4026);
     const mean = epcam.reduce((a, b) => a + b, 0) / epcam.length;
     expect(mean).toBeGreaterThan(0.10);
     expect(mean).toBeLessThan(0.20);

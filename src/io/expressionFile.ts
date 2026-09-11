@@ -48,16 +48,6 @@ export interface ExpressionHeader {
 
 export class InvalidExpressionFile extends Error {}
 
-/** IEEE half to double. */
-function fromHalf(bits: number): number {
-  const sign = bits & 0x8000 ? -1 : 1;
-  const exponent = (bits & 0x7c00) >> 10;
-  const fraction = bits & 0x03ff;
-  if (exponent === 0) return sign * Math.pow(2, -14) * (fraction / 1024);
-  if (exponent === 31) return fraction ? NaN : sign * Infinity;
-  return sign * Math.pow(2, exponent - 15) * (1 + fraction / 1024);
-}
-
 export function parseExpressionFile(buffer: ArrayBuffer): SpatialResult {
   const bytes = new Uint8Array(buffer);
   if (bytes.length < 12) throw new InvalidExpressionFile("That file is too short to be an expression map.");
@@ -88,9 +78,10 @@ export function parseExpressionFile(buffer: ArrayBuffer): SpatialResult {
   if (!nPatches || !nGenes) throw new InvalidExpressionFile("The header lists no patches or no genes.");
 
   const expected = nPatches * nGenes;
-  const payload = buffer.slice(headerEnd);
   const wide = header.dtype === "float32";
-  const got = wide ? payload.byteLength / 4 : payload.byteLength / 2;
+  const unit = wide ? 4 : 2;
+  const payloadBytes = bytes.length - headerEnd;
+  const got = Math.floor(payloadBytes / unit);
 
   if (got !== expected) {
     throw new InvalidExpressionFile(
@@ -99,18 +90,36 @@ export function parseExpressionFile(buffer: ArrayBuffer): SpatialResult {
     );
   }
 
-  let values: Float32Array;
+  /*
+   * Kept in the precision it arrived in, and viewed rather than copied.
+   *
+   * A whole-transcriptome map is 32,054 patches by 19,338 genes. Widening that
+   * to fp32 up front costs 2.5 GB, and the `buffer.slice` that used to feed it
+   * another 1.2 GB on top of the 1.2 GB buffer — about 5 GB peak to display one
+   * gene at a time, which no tab survives. A view over the original bytes costs
+   * nothing, and `valueAt` decodes a half where one is actually read.
+   *
+   * A typed-array view has to start on a multiple of its element size, and the
+   * header length is whatever the JSON came to, so an odd-length header still
+   * needs the copy. That is a rare case and a correct one, not a silent
+   * fallback to something wrong.
+   */
+  let values: Float32Array | Uint16Array;
+  const aligned = headerEnd % unit === 0;
   if (wide) {
-    values = new Float32Array(payload);
+    values = aligned
+      ? new Float32Array(buffer, headerEnd, expected)
+      : new Float32Array(buffer.slice(headerEnd));
   } else {
-    const halves = new Uint16Array(payload);
-    values = new Float32Array(expected);
-    for (let i = 0; i < expected; i++) values[i] = fromHalf(halves[i]);
+    values = aligned
+      ? new Uint16Array(buffer, headerEnd, expected)
+      : new Uint16Array(buffer.slice(headerEnd));
   }
 
   return {
     genes: header.genes,
     values,
+    half: !wide,
     patches: header.patches.map((p, index) => ({
       index,
       col: 0,
