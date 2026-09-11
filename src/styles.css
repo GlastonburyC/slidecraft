@@ -704,3 +704,15 @@ h2.with-mark { display: flex; align-items: center; gap: 7px; }
   box-shadow: 0 16px 40px rgba(0,0,0,.45);
 }
 .patch-options h2 { margin-top: 0; }
+
+/*
+ * What arrived alongside the slide. Informational, not a warning: this is the
+ * app doing what it was asked to, and it is only on screen because loading
+ * annotations nobody remembers putting there is unsettling otherwise.
+ */
+.note.attached {
+  background: #11201f; border: 1px solid var(--accent-dim); color: var(--text-dim);
+  margin-bottom: 8px;
+}
+.note.attached ul { margin: 4px 0 0; padding-left: 16px; }
+.note.attached li { font: 11px/1.5 var(--mono); color: var(--text); }

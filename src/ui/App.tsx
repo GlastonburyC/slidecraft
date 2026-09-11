@@ -23,7 +23,9 @@ import type { SegmentController } from "../ml/segmentController";
 import { useAnnotations } from "../annotate/store";
 import { ROI_CLASS_ID } from "../annotate/types";
 import { loadDocument, saveDocument, slideKeyOf } from "../io/persistence";
-import { getRememberAnnotations, setRememberAnnotations } from "../io/prefs";
+import {
+  getLoadAssociated, getRememberAnnotations, setLoadAssociated, setRememberAnnotations,
+} from "../io/prefs";
 import { matchesSlide, parseExpressionFile } from "../io/expressionFile";
 import { loadLocalModels } from "../ml/localModels";
 import { PredictController } from "../ml/predictController";
@@ -48,6 +50,13 @@ export function App() {
   const [slideFilter, setSlideFilter] = useState("");
   const [tab, setTab] = useState<SidebarTab>("slides");
   const [remember, setRemember] = useState(getRememberAnnotations);
+  const [associated, setAssociated] = useState(getLoadAssociated);
+  /**
+   * What came in with the slide, so the load is visible rather than merely
+   * having happened. Annotations appearing from nowhere is unsettling when you
+   * did not know a GeoJSON was sitting next to the file.
+   */
+  const [attached, setAttached] = useState<string[]>([]);
   const [spatial, setSpatial] = useState<SpatialController | null>(null);
   const [predictor, setPredictor] = useState<PredictController | null>(null);
   const [importingSpatial, setImportingSpatial] = useState(false);
@@ -251,6 +260,15 @@ export function App() {
 
   // ---- annotation document lifecycle -------------------------------------
 
+  /**
+   * Clear the "loaded with this slide" list when the slide changes.
+   *
+   * Declared before the two effects that append to it, because React runs them
+   * in declaration order — put this after them and it wipes the very entries
+   * they just added.
+   */
+  useEffect(() => { setAttached([]); }, [source]);
+
   // Restore whatever was autosaved for this slide, or start a clean document.
   useEffect(() => {
     if (!source) {
@@ -258,7 +276,9 @@ export function App() {
       return;
     }
     const key = slideKeyOf(source.meta);
-    const sidecar = activeIdx !== null ? (slides[activeIdx]?.annotations ?? null) : null;
+    const sidecar = associated && activeIdx !== null
+      ? (slides[activeIdx]?.annotations ?? null)
+      : null;
     let cancelled = false;
 
     void loadDocument(remember ? key : "").then(async (doc) => {
@@ -289,6 +309,7 @@ export function App() {
           label: `Load ${annotations.length} from ${sidecar.name}`,
           added: annotations,
         });
+        setAttached((prev) => [...prev, `${annotations.length} annotations from ${sidecar.name}`]);
       } catch (err) {
         if (!cancelled) setError(`Could not read ${sidecar.name}: ${String(err)}`);
       }
@@ -357,7 +378,9 @@ export function App() {
      * when the names disagree: expression drawn over the wrong slide is the
      * most convincing wrong result this app could produce.
      */
-    const sidecar = activeIdx !== null ? (slides[activeIdx]?.expression ?? null) : null;
+    const sidecar = associated && activeIdx !== null
+      ? (slides[activeIdx]?.expression ?? null)
+      : null;
     if (sidecar) {
       void sidecar.arrayBuffer().then((buf) => {
         try {
@@ -369,6 +392,11 @@ export function App() {
             return;
           }
           useSpatial.getState().setResult(loaded);
+          setAttached((prev) => [
+            ...prev,
+            `${loaded.patches.length.toLocaleString()} patches × ` +
+              `${loaded.genes.length.toLocaleString()} genes from ${sidecar.name}`,
+          ]);
         } catch (err) {
           setError(`Could not read ${sidecar.name}: ${err instanceof Error ? err.message : String(err)}`);
         }
@@ -553,6 +581,40 @@ export function App() {
                   Or drop slides anywhere in this window.
                 </div>
               )}
+
+              {/*
+                * What arrived with the slide, and the switch that governs it.
+                *
+                * Both live here rather than only on the empty screen: by the
+                * time you notice annotations you did not draw, the empty screen
+                * is long gone, and the question "where did these come from" has
+                * to be answerable from where you are.
+                */}
+              {attached.length > 0 && (
+                <div className="note attached">
+                  Loaded with this slide:
+                  <ul>{attached.map((a) => <li key={a}>{a}</li>)}</ul>
+                </div>
+              )}
+              <button
+                className="lamp"
+                data-on={associated}
+                onClick={() => {
+                  const next = !associated;
+                  setAssociated(next);
+                  setLoadAssociated(next);
+                }}
+                title={
+                  associated
+                    ? "A .geojson or .expression.bin named after the slide loads with it"
+                    : "Files beside the slide are ignored. Drop them in yourself to load them."
+                }
+              >
+                <span className="lamp-dot" />
+                <span className="lamp-text">
+                  {associated ? "Loading associated data" : "Ignoring associated data"}
+                </span>
+              </button>
               {/* A batch is hundreds of slides; without a filter the list is a
                   scroll hunt, and without a fixed height it pushes every other
                   panel off the screen. */}
@@ -709,6 +771,26 @@ export function App() {
                   <span className="lamp-dot" />
                   <span className="lamp-text">
                     {remember ? "Remembering annotations" : "Opening slides clean"}
+                  </span>
+                </button>
+
+                <button
+                  className="lamp"
+                  data-on={associated}
+                  onClick={() => {
+                    const next = !associated;
+                    setAssociated(next);
+                    setLoadAssociated(next);
+                  }}
+                  title={
+                    associated
+                      ? "A .geojson or .expression.bin named after the slide loads with it"
+                      : "Files beside the slide are ignored. Drop them in yourself to load them."
+                  }
+                >
+                  <span className="lamp-dot" />
+                  <span className="lamp-text">
+                    {associated ? "Loading associated data" : "Ignoring associated data"}
                   </span>
                 </button>
               </div>
