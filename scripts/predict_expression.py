@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import pathlib
 import shlex
@@ -34,6 +35,59 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 MAGIC = b"SCEXPR1\x00"
 DEFAULT_GENES = ["EPCAM", "PTPRC", "CD3D", "COL1A1", "MKI67", "VIM", "KRT19", "ACTA2"]
+
+# A colonic-IBD panel, grouped by what each block reads out. Curated rather
+# than assembled from a differential-expression list: the point is that a
+# nonsensical map is recognisable as nonsense, which needs markers whose
+# spatial arrangement is already known -- crypt epithelium where crypts are,
+# plasma cells in the lamina propria, collagen in the submucosa.
+#
+# IGHA1 and IGHG1 belong here and are absent from the model's vocabulary;
+# JCHAIN, MZB1 and DERL3 carry the plasma-cell readout instead.
+IBD_PANEL: dict[str, list[str]] = {
+    # Mature absorptive colonocyte. These fall away in active disease, so their
+    # absence is as informative as their presence.
+    "colonocyte": ["CA1", "CA2", "AQP8", "SLC26A3", "GUCA2A", "GUCA2B",
+                   "MS4A12", "CEACAM7", "HMGCS2", "SELENBP1"],
+    # Goblet cells and the mucus barrier, depleted in ulcerative colitis.
+    "goblet": ["MUC2", "TFF3", "FCGBP", "CLCA1", "ZG16", "SPINK4", "AGR2",
+               "ITLN1", "REG4"],
+    # Crypt base, proliferation and the regenerative response.
+    "stem": ["LGR5", "OLFM4", "ASCL2", "MKI67", "SOX9", "REG1A", "REG1B", "REG3A"],
+    # Paneth-cell metaplasia and epithelial antimicrobials.
+    "antimicrobial": ["LYZ", "DEFA5", "DEFA6", "PLA2G2A", "PI3", "SLPI",
+                      "LCN2", "DMBT1"],
+    # The calprotectin axis -- S100A8/A9 are the faecal biomarker itself.
+    "neutrophil": ["S100A8", "S100A9", "S100A12", "FCGR3B", "CXCL8", "CSF3R"],
+    "tcell": ["PTPRC", "CD3D", "CD3E", "CD2", "CD8A", "CD4", "FOXP3", "IL7R",
+              "CCL5", "GZMA", "GZMB"],
+    # Plasma cells dominate inflamed IBD mucosa.
+    "bcell": ["MS4A1", "CD79A", "JCHAIN", "MZB1", "DERL3", "XBP1"],
+    "myeloid": ["CD68", "CD14", "CD163", "ITGAX", "C1QA", "TYROBP", "AIF1",
+                "HLA-DRA", "CD74"],
+    # Cytokines that are also drug targets: anti-TNF, ustekinumab, vedolizumab,
+    # the JAK inhibitors, ozanimod. OSM predicts anti-TNF non-response.
+    "cytokine": ["TNF", "IL1B", "IL6", "IL17A", "IL23A", "IL12B", "IFNG",
+                 "OSM", "OSMR", "JAK1", "JAK2", "TYK2", "S1PR1", "ITGA4",
+                 "ITGB7", "IL10", "IL11", "TNFAIP3"],
+    # CXCL13/CCL19/CCL21 mark the tertiary lymphoid structures of chronicity.
+    "chemokine": ["CXCL9", "CXCL10", "CXCL11", "CXCL13", "CCL19", "CCL21",
+                  "CXCL5", "CXCL1"],
+    # Stroma and fibrosis -- the stricturing axis in Crohn's.
+    "stroma": ["COL1A1", "COL1A2", "COL3A1", "COL4A1", "COL6A1", "FN1",
+               "ACTA2", "TAGLN", "DES", "PDGFRA", "PDGFRB", "THY1", "VIM",
+               "MMP1", "MMP3", "MMP9", "TIMP1", "TGFB1", "POSTN", "FAP"],
+    # MADCAM1 is the vedolizumab target; the rest is vessel identity.
+    "vascular": ["PECAM1", "VWF", "CDH5", "MADCAM1", "ICAM1", "VCAM1",
+                 "ACKR1", "PLVAP"],
+    "neuroendocrine": ["CHGA", "CHGB", "PYY", "S100B", "UCHL1"],
+    # Epithelial architecture, for orientation.
+    "epithelium": ["EPCAM", "CDH1", "KRT8", "KRT18", "KRT19", "KRT20", "VIL1"],
+    "risk_loci": ["NOD2", "ATG16L1", "IRGM", "CARD9", "IL23R", "PTGER4", "HNF4A"],
+}
+
+PANELS = {"ibd-colon": [g for block in IBD_PANEL.values() for g in block]}
+
 
 # The gene router draws its projections from one of five frozen biological
 # embedding spaces -- DNA, RNA, protein, single-cell and text. The checkpoint
@@ -67,6 +121,8 @@ def submit_to_cluster(args) -> int:
                             "--device", args.device]
     if args.all:
         forwarded.append("--all")
+    elif args.panel:
+        forwarded += ["--panel", args.panel]
     else:
         forwarded += ["--genes", *args.genes]
     if args.stride:
@@ -167,6 +223,10 @@ def main() -> int:
                          "the choice is recorded in the output header.")
     ap.add_argument("--genes", nargs="*", default=DEFAULT_GENES)
     ap.add_argument("--all", action="store_true", help="Every gene the model predicts")
+    ap.add_argument("--panel", choices=sorted(PANELS),
+                    help="A curated gene set instead of --genes. 'ibd-colon' is "
+                         f"{len(PANELS['ibd-colon'])} markers of colonic inflammatory "
+                         "bowel disease, grouped by readout.")
     ap.add_argument("--target-mpp", type=float, default=0.5,
                     help="Magnification to read at; the model was trained near 20x")
     ap.add_argument("--patch", type=int, default=224)
@@ -221,10 +281,11 @@ def main() -> int:
         import torch
         from PIL import Image
         from deepspotm import DeepSpotM
+        from tissue import MAX_OVERVIEW, tissue_mask  # noqa: F401 - checked here, used below
     except ImportError as err:
         print(
             f"Missing dependency: {err}\n"
-            "  pip install torch openslide-python pillow numpy\n"
+            "  pip install torch openslide-python pillow numpy scipy\n"
             "  pip install git+https://github.com/ratschlab/DeepSpotM",
             file=sys.stderr,
         )
@@ -239,25 +300,44 @@ def main() -> int:
         print("This slide reports no MPP; assuming 0.5 µm/px.", file=sys.stderr)
         mpp = 0.5
 
-    # The level whose scale is nearest what the model was trained at. Reading a
-    # 40x tile for a 20x model shows it half the tissue it expects, which
-    # changes every prediction without failing.
-    level = min(
-        range(slide.level_count),
-        key=lambda l: abs(slide.level_downsamples[l] * mpp - args.target_mpp),
-    )
+    # The model was trained at a fixed µm/px, so a tile has to cover a fixed
+    # number of MICRONS -- not a fixed number of pixels at whatever resolution
+    # this scanner happened to use. Reading 224px of a 40x scan for a 20x model
+    # shows it a quarter of the area it expects, which changes every prediction
+    # without ever failing.
+    #
+    # So the field is decided in slide coordinates first, and the level is only
+    # a question of where to read it from: the coarsest one still finer than the
+    # target, so the tile is downsampled to the model's input rather than
+    # upsampled into detail the scan does not contain.
+    target = args.target_mpp
+    finer = [l for l in range(slide.level_count)
+             if slide.level_downsamples[l] * mpp <= target * 1.01]
+    level = max(finer) if finer else 0
     downsample = slide.level_downsamples[level]
-    side0 = int(round(args.patch * downsample))
-    step0 = int(round((args.stride or args.patch) * downsample))
-    print(f"Level {level} ({downsample:.1f}x, {downsample * mpp:.3f} µm/px), "
-          f"patch {args.patch}px = {side0}px at level 0")
+
+    side0 = max(1, int(round(args.patch * target / mpp)))
+    step0 = max(1, int(round((args.stride or args.patch) * target / mpp)))
+    read_px = max(1, int(round(side0 / downsample)))
+
+    print(f"Level {level} ({downsample:.1f}x, {downsample * mpp:.3f} µm/px): "
+          f"read {read_px}px -> {args.patch}px, covering "
+          f"{side0}px of level 0 = {side0 * mpp:.0f} µm")
+    if not finer:
+        print(f"No level reaches {target} µm/px; reading level 0 at "
+              f"{mpp:.3f} µm/px and upscaling.", file=sys.stderr)
 
     print(f"Loading {args.repo} (source {args.source}) …")
     model, image_processor = DeepSpotM.from_pretrained(args.repo, source=args.source)
     model = model.eval().to(args.device)
 
     gene_names = list(model.gene_names)
-    genes = gene_names if args.all else list(args.genes)
+    if args.all:
+        genes = gene_names
+    elif args.panel:
+        genes = PANELS[args.panel]
+    else:
+        genes = list(args.genes)
     missing = [g for g in genes if g not in gene_names]
     if missing:
         print(f"Not in this model: {', '.join(missing)}", file=sys.stderr)
@@ -265,16 +345,33 @@ def main() -> int:
     print(f"{len(genes)} genes")
 
     width, height = slide.level_dimensions[0]
-    thumb = np.asarray(slide.get_thumbnail((1024, 1024)).convert("RGB")).astype(np.float32)
-    # Tissue by the same cue Slidecraft uses: distance from blank glass, taking
-    # the stronger of saturation and darkness.
-    mx = thumb.max(axis=2)
-    mn = thumb.min(axis=2)
-    sat = np.where(mx > 0, (mx - mn) / np.maximum(mx, 1) * 255, 0)
-    dark = 255 - (0.299 * thumb[..., 0] + 0.587 * thumb[..., 1] + 0.114 * thumb[..., 2])
-    score = np.maximum(sat, dark)
-    tissue = score > max(6, np.percentile(score, 55))
+
+    # Tissue by Slidecraft's own detector, not an approximation of it. A
+    # percentile cut over a thumbnail is easy and lands somewhere the browser's
+    # "Detect tissue" does not agree with, so the two views of one slide would
+    # disagree about where the tissue was. See scripts/tissue.py.
+    ov_level = slide.level_count - 1
+    full_w, full_h = slide.level_dimensions[ov_level]
+    ov_step = max(1, math.ceil(max(full_w, full_h) / MAX_OVERVIEW))
+    ov_w = max(1, full_w // ov_step)
+    ov_h = max(1, full_h // ov_step)
+
+    # The WHOLE overview, downsampled -- never a crop. Clamping the read size
+    # instead of the sampling rate reads only the top-left corner and then maps
+    # it across the entire slide.
+    overview = slide.read_region((0, 0), ov_level, (full_w, full_h)).convert("RGB")
+    if (ov_w, ov_h) != (full_w, full_h):
+        overview = overview.resize((ov_w, ov_h), Image.BILINEAR)
+
+    um_per_cell = slide.level_downsamples[ov_level] * ov_step * mpp
+    tissue = tissue_mask(np.asarray(overview), um_per_cell)
     th, tw = tissue.shape
+    covered = float(tissue.mean())
+    print(f"Tissue: {covered * 100:.1f}% of the slide "
+          f"({ov_w}x{ov_h} overview at {um_per_cell:.1f} µm/cell)")
+    if not tissue.any():
+        print("The tissue detector found nothing on this slide.", file=sys.stderr)
+        return 1
 
     coords: list[tuple[int, int]] = []
     for y in range(0, height - side0 + 1, step0):
@@ -298,7 +395,7 @@ def main() -> int:
             chunk = coords[start : start + args.batch]
             tiles = []
             for x, y in chunk:
-                tile = slide.read_region((x, y), level, (args.patch, args.patch)).convert("RGB")
+                tile = slide.read_region((x, y), level, (read_px, read_px)).convert("RGB")
                 if tile.size != (args.patch, args.patch):
                     tile = tile.resize((args.patch, args.patch), Image.BILINEAR)
                 tiles.append(tile)

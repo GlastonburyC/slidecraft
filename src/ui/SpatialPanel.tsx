@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAnnotations } from "../annotate/store";
 import { pickRoi, roiHint } from "../annotate/pickRoi";
 import { useMl } from "../ml/mlStore";
@@ -45,6 +45,7 @@ export function SpatialPanel({
   const {
     models, activeModelId, status, error, download, progress, result, backend,
     gene, setGene, opacity, setOpacity, visible, setVisible, setActiveModel, setResult,
+    onTissueOnly, setOnTissueOnly, setTissueMask,
     mode, setMode, signatures, setSignatures, signatureName, setSignatureName,
   } = spatialState;
 
@@ -68,6 +69,31 @@ export function SpatialPanel({
 
   const spec = findModel(models, activeModelId ?? "");
   const busy = status === "running" || status === "loading";
+
+  /**
+   * Which patches land on tissue, recomputed whenever either side moves.
+   *
+   * A map carries a patch wherever whoever computed it thought there was
+   * tissue. That was a different detector on a different machine, and on a
+   * slide with a dark edge or a coverslip line it can be generous. The tissue
+   * objects on this slide are the ones you can see and correct, so they get the
+   * last word about where a gene is allowed to be read.
+   */
+  const onTissue = useMemo(() => {
+    if (!result) return null;
+    if (!tissue.length) return null;
+    const inside = patchesInside(result, tissue);
+    const mask = new Uint8Array(result.patches.length);
+    for (const i of inside) mask[i] = 1;
+    return mask;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result, tissue, version]);
+
+  useEffect(() => { setTissueMask(onTissue); }, [onTissue, setTissueMask]);
+
+  const shown = onTissueOnly && onTissue
+    ? onTissue.reduce((n, v) => n + v, 0)
+    : (result?.patches.length ?? 0);
 
   const run = async () => {
     if (!controller || !spec) return;
@@ -144,21 +170,37 @@ export function SpatialPanel({
       {models.length === 0 ? (
         <>
           <div className="hint">
-            No spatial model imported. These predict gene expression from the H&E itself —
-            DeepSpot-M is the one this was built against.
+            Gene expression predicted from the H&amp;E itself, no assay run on this section.
+            DeepSpot-M is the model this was built against. There are two ways to get a map,
+            and for a whole slide only the first is practical.
+          </div>
+
+          <div className="hint" style={{ marginTop: 10, fontWeight: 600 }}>
+            1. Compute it on a GPU and drop the folder in
+          </div>
+          <div className="picker-hint">
+            DeepSpot-M is a 1B-parameter encoder, which is minutes per patch in a browser and
+            seconds on a GPU. So run it where the GPU is:
           </div>
           <ol className="steps-hint">
             <li>
-              Accept the terms at <code>huggingface.co/ratschlab/DeepSpotM</code> — the weights
-              are gated to academic and non-profit use.
+              <code>python scripts/predict_expression.py slide.svs --panel ibd-colon</code>
+              {" "}— add <code>--submit HOST</code> to send it to Slurm.
             </li>
-            <li><code>.venv-export/bin/hf auth login</code></li>
-            <li><code>.venv-export/bin/python scripts/export_deepspot.py --genes EPCAM CD3D PTPRC</code></li>
-            <li>Import the <code>.onnx</code> and its <code>.onnx.json</code> below.</li>
+            <li>
+              It writes <code>slide.expression.bin</code> beside the slide. Drop the whole
+              folder here and the map loads with it.
+            </li>
           </ol>
+
+          <div className="hint" style={{ marginTop: 10, fontWeight: 600 }}>
+            2. Import an ONNX export and run it here
+          </div>
           <div className="picker-hint">
-            The conversion is a one-off: the released weights are PyTorch, and the browser runs
-            ONNX. Slidecraft cannot accept the licence for you, so it cannot fetch them for you.
+            For one ROI and a handful of genes, when there is no GPU to reach. Export with{" "}
+            <code>scripts/export_deepspot.py</code> after accepting the terms at{" "}
+            <code>huggingface.co/ratschlab/DeepSpotM</code> — the weights are gated to academic
+            and non-profit use, and Slidecraft cannot accept that licence for you.
           </div>
           <button className="btn" style={{ width: "100%" }} onClick={onImport}>
             Import model…
@@ -390,6 +432,21 @@ export function SpatialPanel({
             <input type="checkbox" checked={visible} onChange={(e) => setVisible(e.target.checked)} />
             Show the expression map
           </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={onTissueOnly}
+              disabled={!onTissue}
+              onChange={(e) => setOnTissueOnly(e.target.checked)}
+            />
+            Only where tissue was detected
+          </label>
+          <div className="picker-hint">
+            {!onTissue
+              ? "No tissue objects on this slide yet — run Detect tissue and this can mask the map to them."
+              : `${shown.toLocaleString()} of ${result.patches.length.toLocaleString()} patches shown. `
+                + "Hidden patches keep their values; this only changes what is drawn."}
+          </div>
           <label className="field">
             <span>Opacity</span>
             <input

@@ -46,8 +46,13 @@ export function ImportSpatialDialog({
   };
 
   return (
-    <div className="modal-backdrop" onClick={close}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+    // modal-scrim, not a bare div: it is what carries the fixed position, the
+    // centring and the z-index that lifts this above the toolbar.
+    <div
+      className="modal-scrim"
+      onPointerDown={(e) => { if (e.target === e.currentTarget) close(); }}
+    >
+      <div className="modal">
         <div className="modal-head">
           {kind === "encode" ? "Import a patch encoder" : "Import a spatial model"}
         </div>

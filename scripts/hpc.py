@@ -219,10 +219,12 @@ def submit(
 
     r.run(ssh_cmd(job, f"mkdir -p {shlex.quote(str(remote))}"))
 
-    # The script travels with the job. A cluster copy that has drifted from the
+    # The scripts travel with the job. A cluster copy that has drifted from the
     # one here produces results that do not match this checkout, and nothing
-    # says so.
-    r.run(rsync_cmd(job, "-a", str(here / "predict_expression.py"), f"{job.host}:{remote}/"))
+    # says so. tissue.py goes too: predict_expression.py imports it, and a node
+    # holding a stale copy would silently choose different patches.
+    for name in ("predict_expression.py", "tissue.py"):
+        r.run(rsync_cmd(job, "-a", str(here / name), f"{job.host}:{remote}/"))
 
     if remote_slide:
         slide_path = expand_home(remote_slide, home)

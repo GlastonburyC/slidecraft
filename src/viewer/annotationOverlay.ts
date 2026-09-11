@@ -329,6 +329,8 @@ export class AnnotationOverlay {
         const side = spatial.result.side;
         const alpha = Math.round(255 * spatial.opacity);
         const patches = spatial.result.patches;
+        const mask = spatial.onTissueOnly ? spatial.tissueMask : null;
+        const maskKey = mask ? `t${spatial.tissueMaskVersion}` : "off";
         layers.push(
           new PolygonLayer<{ i: number }>({
             id: `spatial-${spatial.result.createdAt}-${field.label}`,
@@ -343,12 +345,18 @@ export class AnnotationOverlay {
               ]];
             },
             getFillColor: (d) => {
+              // A patch off the tissue is drawn fully transparent rather than
+              // dropped from the data, so toggling the mask is a colour change
+              // and not a rebuild of every polygon.
+              if (mask && !mask[d.i]) return [0, 0, 0, 0];
               const [r, g, b] = colourFor(values[d.i], range);
               return [r, g, b, alpha];
             },
             filled: true,
             stroked: false,
-            updateTriggers: { getFillColor: `${field.label}|${spatial.opacity}` },
+            updateTriggers: {
+              getFillColor: `${field.label}|${spatial.opacity}|${maskKey}`,
+            },
           }),
         );
       }
