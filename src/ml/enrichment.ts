@@ -1,5 +1,6 @@
 import { containsPoint, isAreaGeometry, type Annotation } from "../annotate/types";
 import { valueAt, type SpatialResult } from "./spatialResult";
+import type { Signature } from "./signatures";
 
 /**
  * Which genes are enriched in a region you drew.
@@ -26,6 +27,7 @@ import { valueAt, type SpatialResult } from "./spatialResult";
  */
 
 export interface GeneStat {
+  /** The gene, or the cell type, depending on what was compared. */
   gene: string;
   meanIn: number;
   meanOut: number;
@@ -45,6 +47,13 @@ export interface EnrichmentResult {
   genes: GeneStat[];
   inside: number;
   outside: number;
+  /**
+   * What was compared. Signature scores are standardised per gene before being
+   * averaged, so their means are in standard deviations and a gene's are in the
+   * model's own units — the two are not on the same scale and the label has to
+   * say which you are looking at.
+   */
+  kind: "gene" | "signature";
 }
 
 export class NotEnoughPatches extends Error {}
@@ -116,6 +125,69 @@ export function benjaminiHochberg(p: number[]): number[] {
   return q;
 }
 
+
+/**
+ * Compare one column of numbers inside a region against outside it.
+ *
+ * The column is a gene's values across the patches, or a signature's score
+ * across them — the test does not care which, which is the whole reason it
+ * lives here rather than inside the gene loop.
+ */
+function compare(
+  values: Float32Array,
+  inside: Set<number>,
+  nIn: number,
+  nOut: number,
+): { meanIn: number; meanOut: number; auc: number; p: number } {
+  const n = values.length;
+  let sumIn = 0;
+  let sumOut = 0;
+  for (let i = 0; i < n; i++) {
+    if (inside.has(i)) sumIn += values[i];
+    else sumOut += values[i];
+  }
+
+  const { ranks, tieTerm } = rank(values);
+  let rankSumIn = 0;
+  for (const i of inside) rankSumIn += ranks[i];
+
+  const u = rankSumIn - (nIn * (nIn + 1)) / 2;
+  const auc = u / (nIn * nOut);
+
+  const mean = (nIn * nOut) / 2;
+  const varU = ((nIn * nOut) / 12) * (n + 1 - tieTerm / (n * (n - 1)));
+  // Every value identical: no ordering to compare, so no evidence either way.
+  const z = varU > 0 ? (u - mean) / Math.sqrt(varU) : 0;
+  const p = varU > 0 ? Math.min(1, 2 * normalSf(Math.abs(z))) : 1;
+
+  return { meanIn: sumIn / nIn, meanOut: sumOut / nOut, auc, p };
+}
+
+/** Shared by both entry points: the region has to be big enough to test. */
+function checkSize(nIn: number, nOut: number, minPatches: number): void {
+  if (nIn < minPatches || nOut < minPatches) {
+    throw new NotEnoughPatches(
+      `Needs at least ${minPatches} patches on each side — this region has ${nIn} inside and ${nOut} outside. ` +
+        "Draw a larger region, or predict over more of the slide.",
+    );
+  }
+}
+
+/** Rank, adjust and order a set of comparisons the same way for both. */
+function finish(
+  stats: GeneStat[],
+  ps: number[],
+  nIn: number,
+  nOut: number,
+  kind: "gene" | "signature",
+): EnrichmentResult {
+  const qs = benjaminiHochberg(ps);
+  stats.forEach((s, i) => { s.q = qs[i]; });
+  // Most separable first, which is what "over-represented here" means.
+  stats.sort((a, b) => b.auc - a.auc);
+  return { genes: stats, inside: nIn, outside: nOut, kind };
+}
+
 export function differentialExpression(
   result: SpatialResult,
   inside: Set<number>,
@@ -124,13 +196,7 @@ export function differentialExpression(
   const n = result.patches.length;
   const nIn = inside.size;
   const nOut = n - nIn;
-
-  if (nIn < minPatches || nOut < minPatches) {
-    throw new NotEnoughPatches(
-      `Needs at least ${minPatches} patches on each side — this region has ${nIn} inside and ${nOut} outside. ` +
-        "Draw a larger region, or predict over more of the slide.",
-    );
-  }
+  checkSize(nIn, nOut, minPatches);
 
   const stride = result.genes.length;
   const values = new Float32Array(n);
@@ -139,44 +205,68 @@ export function differentialExpression(
 
   for (let g = 0; g < stride; g++) {
     for (let i = 0; i < n; i++) values[i] = valueAt(result, i * stride + g);
-
-    let sumIn = 0;
-    let sumOut = 0;
-    for (let i = 0; i < n; i++) {
-      if (inside.has(i)) sumIn += values[i];
-      else sumOut += values[i];
-    }
-
-    const { ranks, tieTerm } = rank(values);
-    let rankSumIn = 0;
-    for (const i of inside) rankSumIn += ranks[i];
-
-    const u = rankSumIn - (nIn * (nIn + 1)) / 2;
-    const auc = u / (nIn * nOut);
-
-    const mean = (nIn * nOut) / 2;
-    const varU =
-      ((nIn * nOut) / 12) * (n + 1 - tieTerm / (n * (n - 1)));
-    // Every value identical: no ordering to compare, so no evidence either way.
-    const z = varU > 0 ? (u - mean) / Math.sqrt(varU) : 0;
-    const p = varU > 0 ? Math.min(1, 2 * normalSf(Math.abs(z))) : 1;
-
-    const meanIn = sumIn / nIn;
-    const meanOut = sumOut / nOut;
+    const { meanIn, meanOut, auc, p } = compare(values, inside, nIn, nOut);
     stats.push({ gene: result.genes[g], meanIn, meanOut, diff: meanIn - meanOut, auc, p, q: 1 });
     ps.push(p);
   }
 
-  const qs = benjaminiHochberg(ps);
-  stats.forEach((s, i) => { s.q = qs[i]; });
-  // Most separable first, which is what "over-represented here" means.
-  stats.sort((a, b) => b.auc - a.auc);
+  return finish(stats, ps, nIn, nOut, "gene");
+}
 
-  return { genes: stats, inside: nIn, outside: nOut };
+/**
+ * Which cell types are over-represented in a region you drew.
+ *
+ * The same test as the gene version, over signature scores instead of gene
+ * values — which is the question people usually have. "CXCL13 is enriched
+ * here" needs you to already know what CXCL13 means; "this is a lymphoid
+ * aggregate" does not.
+ *
+ * Reading it, two things differ from the gene version. The means are in
+ * standard deviations rather than the model's units, because scoreSignature
+ * standardises each gene before averaging so an abundant one cannot carry the
+ * signature by itself. And the q-values are weaker still: signatures share
+ * genes — every epithelial type draws on KRT8 — so the comparisons are
+ * correlated with each other on top of the spatial autocorrelation between
+ * patches. Rank by AUC and treat q as a filter, not as evidence.
+ */
+export function differentialSignatures(
+  result: SpatialResult,
+  inside: Set<number>,
+  signatures: Signature[],
+  score: (r: SpatialResult, s: Signature) => Float32Array | null,
+  minPatches = 5,
+): EnrichmentResult {
+  const n = result.patches.length;
+  const nIn = inside.size;
+  const nOut = n - nIn;
+  checkSize(nIn, nOut, minPatches);
+
+  const stats: GeneStat[] = [];
+  const ps: number[] = [];
+
+  for (const signature of signatures) {
+    // A signature the map cannot cover scores null rather than zero, and is
+    // left out rather than ranked against the ones it can.
+    const values = score(result, signature);
+    if (!values || values.length !== n) continue;
+    const { meanIn, meanOut, auc, p } = compare(values, inside, nIn, nOut);
+    stats.push({ gene: signature.name, meanIn, meanOut, diff: meanIn - meanOut, auc, p, q: 1 });
+    ps.push(p);
+  }
+
+  if (stats.length === 0) {
+    throw new NotEnoughPatches(
+      "None of these signatures share enough genes with this map to be scored.",
+    );
+  }
+
+  return finish(stats, ps, nIn, nOut, "signature");
 }
 
 export function enrichmentCsv(result: EnrichmentResult, region: string): string {
-  const head = "gene,mean_in,mean_out,diff,auc,p,q,n_in,n_out,region";
+  const head =
+    `${result.kind === "signature" ? "cell_type" : "gene"}` +
+    ",mean_in,mean_out,diff,auc,p,q,n_in,n_out,region";
   const rows = result.genes.map((g) =>
     [
       g.gene,

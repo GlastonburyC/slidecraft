@@ -8,7 +8,7 @@
 
 [![License](https://img.shields.io/badge/license-MIT-4fd1c5?style=flat-square)](LICENSE)
 [![Node](https://img.shields.io/badge/node-20%2B-4fd1c5?style=flat-square)](package.json)
-[![Tests](https://img.shields.io/badge/tests-285%20passing-4fd1c5?style=flat-square)](src/__tests__)
+[![Tests](https://img.shields.io/badge/tests-290%20passing-4fd1c5?style=flat-square)](src/__tests__)
 [![Slides](https://img.shields.io/badge/slides-never%20uploaded-8b949e?style=flat-square)](#privacy)
 
 [Tutorial](TUTORIAL.md) · [Roadmap](ROADMAP.md) · [Website](https://glastonburyc.github.io/slidecraft/)
@@ -45,6 +45,7 @@ wrong**, and retrain from those edits.
 | **Segments cells on a click** | SAM and SlimSAM in-browser. The encoder runs once per view; each click after that costs milliseconds. |
 | **Tiles what you drag** | Patching is a tool, not a dialog. Drag a region and it tiles at your chosen size, snapped to detected tissue, and every patch can become an editable object. |
 | **Predicts expression** | DeepSpot-M reads the H&E and answers with a value per gene. Fourteen cell-type modules ship built in, so a map is readable the moment it loads — or derive your own from a single-cell atlas. |
+| **Answers "what is this?"** | Draw round a region and rank the cell types over-represented in it, not just the genes. Mann-Whitney on module scores, ordered by effect size. |
 | **Reaches your cluster** | One command submits a whole slide to Slurm over SSH, watches the queue and brings the result back. Your keys and agent, never a password. |
 | **Runs over a folder** | Unattended, one GeoJSON per slide — or a whole transcriptome on your GPU cluster. |
 | **Speaks GeoJSON** | QuPath-compatible in both directions, so nothing dead-ends here. |
@@ -200,7 +201,7 @@ Runtime's wasm is self-hosted rather than loaded from a CDN.
 
 ```bash
 npm run dev            # dev server with the required headers
-npm test               # 285 tests, headless
+npm test               # 290 tests, headless
 npm run test:scripts   # the Python launcher's tests
 npm run build          # typecheck + production build
 ```

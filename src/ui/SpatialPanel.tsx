@@ -8,7 +8,7 @@ import type { SpatialController } from "../ml/spatialController";
 import { currentField, legendStops, robustRange, toCsv } from "../ml/spatialResult";
 import { parseSignatures, scoreSignature, usableSignatures } from "../ml/signatures";
 import {
-  differentialExpression, enrichmentCsv, NotEnoughPatches, patchesInside,
+  differentialExpression, differentialSignatures, enrichmentCsv, patchesInside,
   type EnrichmentResult,
 } from "../ml/enrichment";
 import { useSpatial } from "../ml/spatialStore";
@@ -91,6 +91,30 @@ export function SpatialPanel({
 
   useEffect(() => { setTissueMask(onTissue); }, [onTissue, setTissueMask]);
 
+
+  /**
+   * Compare the selected region against the rest of the slide.
+   *
+   * Both questions share everything except the column being tested, so they
+   * share the error handling too — a region too small to test is too small for
+   * either of them.
+   */
+  const compareRegion = (kind: "gene" | "signature") => {
+    if (!result) return;
+    setEnrichmentError(null);
+    try {
+      const inside = patchesInside(result, selected);
+      setEnrichment(
+        kind === "signature"
+          ? differentialSignatures(result, inside, signatures.signatures, scoreSignature)
+          : differentialExpression(result, inside),
+      );
+      setRegionName(selectedName || "selection");
+    } catch (err) {
+      setEnrichment(null);
+      setEnrichmentError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   const shown = onTissueOnly && onTissue
     ? onTissue.reduce((n, v) => n + v, 0)
@@ -524,29 +548,24 @@ export function SpatialPanel({
                 {selected.length} region{selected.length === 1 ? "" : "s"} selected
                 {selectedName ? ` · ${selectedName}` : ""}
               </div>
-              <button
-                className="btn"
-                style={{ width: "100%" }}
-                onClick={() => {
-                  setEnrichmentError(null);
-                  try {
-                    const inside = patchesInside(result, selected);
-                    setEnrichment(differentialExpression(result, inside));
-                    setRegionName(selectedName || "selection");
-                  } catch (err) {
-                    setEnrichment(null);
-                    setEnrichmentError(
-                      err instanceof NotEnoughPatches
-                        ? err.message
-                        : err instanceof Error
-                          ? err.message
-                          : String(err),
-                    );
-                  }
-                }}
-              >
-                Which genes are enriched here?
-              </button>
+              {/*
+                * Two questions of the same region, and the cell-type one is
+                * usually the one being asked. "CXCL13 is enriched here" needs
+                * you to know already what CXCL13 means; "this is a lymphoid
+                * aggregate" does not.
+                */}
+              <div className="row-actions">
+                <button
+                  className="btn"
+                  onClick={() => compareRegion("signature")}
+                  title="Rank the cell-type modules by how well they separate this region from the rest"
+                >
+                  Which cell types?
+                </button>
+                <button className="btn" onClick={() => compareRegion("gene")}>
+                  Which genes?
+                </button>
+              </div>
             </>
           )}
           {enrichmentError && <div className="note warn">{enrichmentError}</div>}
@@ -558,15 +577,27 @@ export function SpatialPanel({
               </div>
               <div className="scroll-list scroll-list--short">
                 <div className="de-row de-head">
-                  <span>gene</span><span>AUC</span><span>diff</span><span>q</span>
+                  <span>{enrichment.kind === "signature" ? "cell type" : "gene"}</span>
+                  <span>AUC</span><span>diff</span><span>q</span>
                 </div>
                 {enrichment.genes.slice(0, 60).map((g) => (
                   <button
                     key={g.gene}
                     className="de-row"
-                    aria-current={g.gene === gene}
-                    onClick={() => setGene(g.gene)}
-                    title="Show this gene on the slide"
+                    aria-current={
+                      enrichment.kind === "signature" ? g.gene === signatureName : g.gene === gene
+                    }
+                    // A row draws whatever it ranked. Calling setGene for a cell
+                    // type would look for a gene named "plasma cell" and quietly
+                    // change nothing.
+                    onClick={() =>
+                      enrichment.kind === "signature" ? setSignatureName(g.gene) : setGene(g.gene)
+                    }
+                    title={
+                      enrichment.kind === "signature"
+                        ? "Show this cell type on the slide"
+                        : "Show this gene on the slide"
+                    }
                   >
                     <span className="gene-name">{g.gene}</span>
                     <span className="de-auc" data-strong={g.auc > 0.7}>{g.auc.toFixed(2)}</span>
@@ -575,6 +606,13 @@ export function SpatialPanel({
                   </button>
                 ))}
               </div>
+              {enrichment.kind === "signature" && (
+                <div className="picker-hint">
+                  Differences are in standard deviations, not the model&rsquo;s units — a module
+                  standardises each gene before averaging. And these modules share genes, so the
+                  comparisons are correlated with each other as well as across patches.
+                </div>
+              )}
               <div className="picker-hint">
                 Ranked by AUC — how separable inside is from outside. The q-values are
                 Benjamini-Hochberg but <b>optimistic</b>: neighbouring patches are near-copies, so

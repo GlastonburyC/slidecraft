@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  benjaminiHochberg, differentialExpression, NotEnoughPatches, patchesInside,
+  benjaminiHochberg, differentialExpression, differentialSignatures,
+  NotEnoughPatches, patchesInside,
 } from "../ml/enrichment";
+import { scoreSignature, type Signature } from "../ml/signatures";
 import type { SpatialResult } from "../ml/spatialResult";
 import { makeAnnotation } from "../annotate/store";
 
@@ -141,5 +143,92 @@ describe("finding the patches a region covers", () => {
     expect(inside.has(0)).toBe(true);
     expect(inside.has(2)).toBe(true);
     expect(inside.size).toBe(2);
+  });
+});
+
+describe("which cell types are enriched in a region", () => {
+  /**
+   * The question people actually have. "CXCL13 is enriched here" needs you to
+   * know what CXCL13 means; "this is a lymphoid aggregate" does not.
+   *
+   * Built so the answer is knowable in advance: one half of the patches is
+   * given goblet markers and the other stromal ones, so a correct test must put
+   * the goblet module at the top and the stromal one at the bottom.
+   */
+  const GOBLET = ["MUC2", "TFF3", "FCGBP", "ZG16", "CLCA1", "AGR2"];
+  const STROMA = ["COL1A1", "COL3A1", "ACTA2", "DCN", "LUM", "TAGLN"];
+  const genes = [...GOBLET, ...STROMA];
+
+  function slideWithTwoHalves(n = 40) {
+    const values = new Float32Array(n * genes.length);
+    for (let i = 0; i < n; i++) {
+      const gobletHere = i < n / 2;
+      genes.forEach((g, j) => {
+        const isGoblet = GOBLET.includes(g);
+        // A little jitter, so nothing is decided by exact ties.
+        values[i * genes.length + j] =
+          (isGoblet === gobletHere ? 3 : 0.2) + ((i * 7 + j * 13) % 11) / 40;
+      });
+    }
+    return {
+      slide: "s.svs", genes, values,
+      patches: Array.from({ length: n }, (_, i) => ({ x: i * 100, y: 0, index: i, col: i, row: 0, size: 100 })),
+      side: 100, modelId: "t", modelName: "t", roiId: null, ms: 0,
+      createdAt: new Date().toISOString(),
+    } as unknown as SpatialResult;
+  }
+
+  const signatures: Signature[] = [
+    { name: "goblet cell", genes: GOBLET.map((gene) => ({ gene, weight: 1 })) },
+    { name: "fibroblast", genes: STROMA.map((gene) => ({ gene, weight: 1 })) },
+  ];
+
+  it("names the cell type the region is actually made of", () => {
+    const result = slideWithTwoHalves();
+    const inside = new Set(Array.from({ length: 20 }, (_, i) => i)); // the goblet half
+    const out = differentialSignatures(result, inside, signatures, scoreSignature);
+
+    expect(out.kind).toBe("signature");
+    expect(out.genes[0].gene).toBe("goblet cell");
+    expect(out.genes[0].auc).toBeGreaterThan(0.9);
+    // And the other one is depleted, not merely unranked.
+    expect(out.genes[out.genes.length - 1].gene).toBe("fibroblast");
+    expect(out.genes[out.genes.length - 1].auc).toBeLessThan(0.1);
+  });
+
+  it("flips when the other half is selected", () => {
+    const result = slideWithTwoHalves();
+    const inside = new Set(Array.from({ length: 20 }, (_, i) => i + 20));
+    const out = differentialSignatures(result, inside, signatures, scoreSignature);
+    expect(out.genes[0].gene).toBe("fibroblast");
+  });
+
+  it("skips a signature this map cannot score, rather than ranking it at zero", () => {
+    const result = slideWithTwoHalves();
+    const inside = new Set(Array.from({ length: 20 }, (_, i) => i));
+    const withAbsent = [
+      ...signatures,
+      { name: "neuron", genes: [{ gene: "SNAP25", weight: 1 }, { gene: "SYT1", weight: 1 }] },
+    ];
+    const out = differentialSignatures(result, inside, withAbsent, scoreSignature);
+    expect(out.genes.map((g) => g.gene)).not.toContain("neuron");
+    expect(out.genes.length).toBe(2);
+  });
+
+  it("refuses when nothing can be scored at all", () => {
+    const result = slideWithTwoHalves();
+    const inside = new Set(Array.from({ length: 20 }, (_, i) => i));
+    expect(() =>
+      differentialSignatures(result, inside, [
+        { name: "neuron", genes: [{ gene: "SNAP25", weight: 1 }] },
+      ], scoreSignature),
+    ).toThrow(NotEnoughPatches);
+  });
+
+  it("needs enough patches on both sides, same as the gene test", () => {
+    const result = slideWithTwoHalves();
+    expect(() =>
+      differentialSignatures(result, new Set([0, 1]), signatures, scoreSignature),
+    ).toThrow(NotEnoughPatches);
   });
 });
