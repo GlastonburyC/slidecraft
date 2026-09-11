@@ -12,7 +12,8 @@
     "verify:tissue": "vitest run --dir scripts --reporter=verbose --silent=false",
     "setup:ort": "node scripts/setup-ort.mjs",
     "postinstall": "node scripts/setup-ort.mjs",
-    "test:scripts": "python3 -m pytest scripts -q"
+    "test:scripts": "python3 -m pytest scripts -q",
+    "screenshots": "node scripts/screenshots.mjs"
   },
   "keywords": [],
   "author": "",
@@ -38,6 +39,7 @@
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
     "happy-dom": "^20.14.0",
+    "playwright": "^1.63.0",
     "typescript": "^7.0.2",
     "vite": "^8.2.2",
     "vitest": "^5.0.0"

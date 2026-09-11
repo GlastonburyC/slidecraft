@@ -8,7 +8,7 @@
 
 [![License](https://img.shields.io/badge/license-MIT-4fd1c5?style=flat-square)](LICENSE)
 [![Node](https://img.shields.io/badge/node-20%2B-4fd1c5?style=flat-square)](package.json)
-[![Tests](https://img.shields.io/badge/tests-212%20passing-4fd1c5?style=flat-square)](src/__tests__)
+[![Tests](https://img.shields.io/badge/tests-277%20passing-4fd1c5?style=flat-square)](src/__tests__)
 [![Slides](https://img.shields.io/badge/slides-never%20uploaded-8b949e?style=flat-square)](#privacy)
 
 [Tutorial](TUTORIAL.md) · [Roadmap](ROADMAP.md) · [Website](https://glastonburyc.github.io/slidecraft/)
@@ -20,6 +20,12 @@
 Drop an SVS, NDPI or MIRAX slide onto the page and it opens — read by real
 OpenSlide, compiled to WebAssembly. Nothing is uploaded. A 2 GB slide never
 leaves your machine.
+
+<img src="docs/shots/virtual-st.jpg" alt="Predicted expression over a colonic resection, scored as a goblet-cell module">
+
+<sub>A colonic resection with DeepSpot-M's predicted expression over it, read as a
+goblet/mucus module rather than as one gene. Mucosal crypts light up; the wall
+does not. 2,936 patches, 140 genes, computed on a GPU and dropped in as a file.</sub>
 
 ## Why
 
@@ -37,7 +43,9 @@ wrong**, and retrain from those edits.
 | **Annotates properly** | Polygon, freehand, brush and eraser with live boolean ops, resizable ROIs, your own classes, and undo that does not clone the document per stroke. |
 | **Learns tissue from you** | Correct a detection and the correction *is* the training example. A classifier fits in about a second, saves with its labels, and extends across slides. |
 | **Segments cells on a click** | SAM and SlimSAM in-browser. The encoder runs once per view; each click after that costs milliseconds. |
-| **Predicts expression** | DeepSpot-M reads the H&E and answers with a value per gene. Score cell-type signatures, or ask which genes are enriched in a region you drew. |
+| **Tiles what you drag** | Patching is a tool, not a dialog. Drag a region and it tiles at your chosen size, snapped to detected tissue, and every patch can become an editable object. |
+| **Predicts expression** | DeepSpot-M reads the H&E and answers with a value per gene. Fourteen cell-type modules ship built in, so a map is readable the moment it loads — or derive your own from a single-cell atlas. |
+| **Reaches your cluster** | One command submits a whole slide to Slurm over SSH, watches the queue and brings the result back. Your keys and agent, never a password. |
 | **Runs over a folder** | Unattended, one GeoJSON per slide — or a whole transcriptome on your GPU cluster. |
 | **Speaks GeoJSON** | QuPath-compatible in both directions, so nothing dead-ends here. |
 
@@ -78,10 +86,62 @@ idea, and everything else is arranged around it.
 | Middle drag | Pan, with any tool active |
 | <kbd>B</kbd> | Brush — right-click the tool for size |
 | <kbd>O</kbd> | Draw an ROI; drag its corners to resize |
+| <kbd>T</kbd> | Patch — drag a region and it tiles |
 | <kbd>G</kbd> | Click-to-segment |
 | <kbd>1</kbd>–<kbd>9</kbd> | Switch class |
 
 </details>
+
+## Expression from the H&E
+
+DeepSpot-M reads a 224 px tile and answers with a value for any of 19,338 genes.
+That is a 1B-parameter encoder, so the heavy pass happens wherever the GPU is
+and the browser gets a file:
+
+```bash
+# One colonic-IBD panel over a whole slide, on your cluster's GPU queue.
+python scripts/predict_expression.py slide.svs \
+    --panel ibd-colon --submit HOST --partition gpuq
+```
+
+It submits over SSH using your own keys and agent — no password is asked for or
+stored — watches the queue, and brings back `slide.expression.bin`. Drop that
+folder into Slidecraft and the map opens with the slide.
+
+**Read modules, not single genes.** Per-gene accuracy from H&E is modest, so one
+predicted gene is mostly its own error. A module averages its genes after
+standardising each, which leaves the shared signal and averages the noise down.
+Fourteen ship built in; the same tissue below is the stroma module, and it is
+the inverse of the goblet map at the top of this page.
+
+<img src="docs/shots/virtual-st-stroma.jpg" alt="The same tissue read as a stromal module, the inverse of the goblet map">
+
+Derive your own from a single-cell atlas, filtered to the disease you care
+about:
+
+```bash
+python scripts/signatures_from_cellxgene.py --tissue colon \
+    --disease "ulcerative colitis" --disease "Crohn disease" --disease normal
+```
+
+> Predicted expression is a hypothesis from morphology, not a measurement.
+> DeepSpot-M was trained on oncology cohorts, so genes that are out of that
+> distribution — mature-colonocyte markers in normal bowel, low-abundance
+> cytokines — can come back flat. Check the coverage counts before trusting a
+> module.
+
+## Tiling
+
+Patching is a tool: press <kbd>T</kbd> and drag. The grid arrives with the drag,
+clipped to the region and, if you ask, to detected tissue — so a grid that is
+too coarse for the question, or sitting half on glass, is one look away rather
+than an hour of encoder time away.
+
+<img src="docs/shots/patch-tool.jpg" alt="The patch tool tiling a dragged region, restricted to detected tissue">
+
+The cluster uses the same tissue detector as the browser, ported line for line
+in `scripts/tissue.py`, so a patch chosen on a GPU node is a patch Slidecraft
+would have chosen.
 
 ## How it works
 
@@ -135,7 +195,7 @@ Runtime's wasm is self-hosted rather than loaded from a CDN.
 
 ```bash
 npm run dev            # dev server with the required headers
-npm test               # 212 tests, headless
+npm test               # 277 tests, headless
 npm run test:scripts   # the Python launcher's tests
 npm run build          # typecheck + production build
 ```
@@ -146,6 +206,14 @@ cannot stand in for:
 ```bash
 scripts/extract-overviews.sh ~/slides   # needs libvips
 npm run verify:tissue                   # writes a table + an SVG per slide
+```
+
+The screenshots in this README are captured from the running app rather than
+drawn, so a picture cannot claim something the app does not do:
+
+```bash
+npm run dev                    # in another shell
+node scripts/screenshots.mjs   # writes docs/shots/
 ```
 
 ## Licensing

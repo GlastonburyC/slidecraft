@@ -38,3 +38,4 @@ __pycache__/
 # Exported model weights. Gated, licence-bound, and gigabytes each — they are
 # produced by scripts/export_onnx.py, never committed.
 models/
+public/_shot/

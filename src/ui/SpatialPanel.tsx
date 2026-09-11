@@ -163,10 +163,14 @@ export function SpatialPanel({
    * left alone.
    */
   useEffect(() => {
-    if (!result || gene || signatureName) return;
+    if (!result || signatureName) return;
     const best = covered[0];
-    if (best) setSignatureName(best.signature.name);
-  }, [result, gene, signatureName, covered, setSignatureName]);
+    // Only when the module is actually carried by this map. Loading a result
+    // always selects a gene, so the choice here is between one arbitrary gene
+    // and a module -- and a module scored on three of its twenty genes is the
+    // worse of the two. Eight is the same bar the panel calls thin below.
+    if (best && best.coverage.found >= 8) setSignatureName(best.signature.name);
+  }, [result, signatureName, covered, setSignatureName]);
 
   const loadSignatures = async (file: File) => {
     try {
@@ -183,7 +187,16 @@ export function SpatialPanel({
         Virtual spatial
       </h2>
 
-      {models.length === 0 ? (
+      {/*
+        * A map that is already loaded outranks the absence of a model.
+        *
+        * These two are independent: a precomputed .expression.bin arrives with
+        * the slide and needs no model imported at all. Gating the panel on the
+        * model list alone drew the map on the slide and then offered
+        * instructions for obtaining one instead of the controls for the map
+        * that was already there -- visible, and with no way to change the gene.
+        */}
+      {models.length === 0 && !result ? (
         <>
           <div className="hint">
             Gene expression predicted from the H&amp;E itself, no assay run on this section.

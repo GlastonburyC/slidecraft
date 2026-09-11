@@ -23,6 +23,23 @@
   a:hover { text-decoration: underline; }
   .wrap { max-width: 940px; margin: 0 auto; padding: 0 24px; }
 
+  /*
+   * Screenshots, captured from the running app by scripts/screenshots.mjs.
+   *
+   * Bordered rather than floating: every one of these is a dark UI on a dark
+   * page, and without an edge the image bleeds into the background and the
+   * reader cannot tell where the app stops.
+   */
+  figure.shot { margin: 28px 0 0; }
+  figure.shot img {
+    width: 100%; display: block; border-radius: 10px;
+    border: 1px solid var(--line-2);
+  }
+  figure.shot figcaption {
+    margin-top: 10px; color: var(--faint);
+    font: 13px/1.6 var(--sans);
+  }
+
 
   /*
    * The mark, animated once on load.
@@ -206,11 +223,12 @@
       <rect class="sweep" x="6.5" y="2.5" width="19" height="27" rx="3"/>
     </svg>
   </div>
-  <h2>Whole-slide annotation that learns from your corrections.</h2>
+  <h2>Whole-slide pathology that learns from your corrections — and reads expression off the H&amp;E.</h2>
   <p>
     Open an SVS, NDPI or MIRAX slide in the browser. Annotate it, detect tissue,
     fix what the detector got wrong — and those fixes train a classifier you can
-    save and run over the next hundred slides.
+    save and run over the next hundred slides. Then predict spatial gene
+    expression from the morphology itself, on your own GPU cluster.
   </p>
   <p class="note">
     Slides are read by OpenSlide compiled to WebAssembly. Nothing is uploaded;
@@ -220,6 +238,17 @@
     <a class="btn" href="https://github.com/GlastonburyC/slidecraft">Get it on GitHub</a>
     <a class="btn plain" href="TUTORIAL.html">Read the tutorial</a>
   </div>
+
+  <figure class="shot">
+    <img src="shots/virtual-st.jpg"
+         alt="Predicted gene expression over a colonic resection, scored as a goblet-cell module">
+    <figcaption>
+      A colonic resection with DeepSpot-M's predicted expression over it, read as
+      a goblet/mucus module rather than as any one gene. The mucosal crypts light
+      up and the wall does not. 2,936 patches across 140 genes, computed on a GPU
+      node and dropped back in as a file.
+    </figcaption>
+  </figure>
 </div>
 
 <section id="how">
@@ -276,10 +305,79 @@
         <p>Level-0 slide pixels with QuPath's own fields, so annotations round-trip with QuPath instead of being a dead end.</p>
       </div>
       <div class="card">
+        <h4>Virtual spatial transcriptomics</h4>
+        <p>DeepSpot-M predicts expression from morphology alone. Score fourteen built-in cell-type modules, or ask which genes are enriched in a region you drew.</p>
+      </div>
+      <div class="card">
+        <h4>Your GPU cluster, one command</h4>
+        <p>Submits a whole slide to Slurm over SSH, watches the queue and brings the result back. Authentication is your agent and config; no password is ever handled.</p>
+      </div>
+      <div class="card">
         <h4>Bring your own weights</h4>
         <p>No gated weights are bundled. Convert your own with the included exporter; your Hugging Face token stays in your browser and goes only to huggingface.co.</p>
       </div>
     </div>
+  </div>
+</section>
+
+<section id="expression">
+  <div class="wrap">
+    <h3>Expression from the H&amp;E</h3>
+    <p>
+      DeepSpot-M reads a 224&nbsp;px tile and answers with a value for any of
+      19,338 genes. That is a billion-parameter encoder, so the heavy pass runs
+      wherever the GPU is and the browser gets a file:
+    </p>
+    <pre><code>python scripts/predict_expression.py slide.svs \
+    --panel ibd-colon --submit HOST --partition gpuq</code></pre>
+    <p>
+      It submits over SSH with your own keys and agent — no password is asked
+      for or stored — watches the queue, and brings back
+      <code>slide.expression.bin</code>. Drop that folder in and the map opens
+      with the slide.
+    </p>
+
+    <h4 style="margin-top:28px">Read modules, not single genes</h4>
+    <p>
+      Per-gene accuracy from H&amp;E is modest, so one predicted gene is mostly
+      its own error. A module averages its genes after standardising each, which
+      leaves the shared signal and averages the independent noise down.
+      Fourteen ship built in, and you can derive your own from a single-cell
+      atlas filtered to the disease you care about.
+    </p>
+
+    <figure class="shot">
+      <img src="shots/virtual-st-stroma.jpg"
+           alt="The same tissue read as a stromal module, the inverse of the goblet map">
+      <figcaption>
+        The same tissue as above, read as the stroma module — and it is the
+        inverse of the goblet map: dark through the mucosa, bright in the wall.
+        Neither picture is a measurement. Predicted expression is a hypothesis
+        from morphology, to check against an assay.
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="tiling">
+  <div class="wrap">
+    <h3>Tiling is a tool</h3>
+    <p>
+      Press <kbd>T</kbd> and drag. The grid arrives with the drag, clipped to
+      the region and — if you ask — to detected tissue. A grid too coarse for
+      the question, or sitting half on glass, is then one look away rather than
+      an hour of encoder time away.
+    </p>
+    <figure class="shot">
+      <img src="shots/patch-tool.jpg"
+           alt="The patch tool tiling a dragged region, restricted to detected tissue">
+      <figcaption>
+        1,778 patches of a possible 1,974 — the rest fell outside the detected
+        tissue. The cluster uses the same detector as the browser, ported line
+        for line, so a patch chosen on a GPU node is a patch Slidecraft would
+        have chosen.
+      </figcaption>
+    </figure>
   </div>
 </section>
 
