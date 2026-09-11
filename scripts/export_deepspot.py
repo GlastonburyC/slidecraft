@@ -47,10 +47,17 @@ import sys
 
 DEFAULT_GENES = ["EPCAM", "PTPRC", "CD3D", "COL1A1", "MKI67", "VIM", "KRT19", "ACTA2"]
 
+# The gene router draws its projections from one of five frozen biological
+# embedding spaces -- DNA, RNA, protein, single-cell and text.
+SOURCES = ["evo2", "orthrus", "prott5", "scgpt", "apertus"]
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--repo", default="ratschlab/DeepSpotM", help="HuggingFace repo id")
+    ap.add_argument("--source", default="scgpt", choices=SOURCES,
+                    help="Which frozen gene-embedding pathway conditions the gene router. "
+                         "The checkpoint carries all five and will not guess between them")
     ap.add_argument("--genes", nargs="*", default=DEFAULT_GENES,
                     help="Gene symbols to bake into the export")
     ap.add_argument("--all", action="store_true",
@@ -84,10 +91,12 @@ def main() -> int:
     import os
 
     token = args.token or os.environ.get("HF_TOKEN")
-    print(f"Loading {args.repo} …")
+    print(f"Loading {args.repo} (source {args.source}) …")
     try:
         kwargs = {"token": token} if token else {}
-        model, image_processor = DeepSpotM.from_pretrained(args.repo, **kwargs)
+        model, image_processor = DeepSpotM.from_pretrained(
+            args.repo, source=args.source, **kwargs
+        )
     except Exception as err:  # noqa: BLE001 - the cause matters more than the type
         print(
             f"Could not load {args.repo}: {err}\n\n"

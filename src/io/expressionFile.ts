@@ -35,6 +35,12 @@ export interface ExpressionHeader {
   dtype: "float16" | "float32";
   model: string;
   modelId?: string;
+  /**
+   * Which of DeepSpot-M's five gene-embedding pathways produced this, if any.
+   * The same tile through two pathways gives two different numbers, so two maps
+   * are only comparable when this agrees.
+   */
+  source?: string;
   createdAt?: string;
   /** Microns per pixel of the slide it was computed on, for a sanity check. */
   mpp?: number | null;

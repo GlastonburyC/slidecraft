@@ -35,6 +35,11 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 MAGIC = b"SCEXPR1\x00"
 DEFAULT_GENES = ["EPCAM", "PTPRC", "CD3D", "COL1A1", "MKI67", "VIM", "KRT19", "ACTA2"]
 
+# The gene router draws its projections from one of five frozen biological
+# embedding spaces -- DNA, RNA, protein, single-cell and text. The checkpoint
+# carries all five and refuses to guess, so one has to be named.
+SOURCES = ["evo2", "orthrus", "prott5", "scgpt", "apertus"]
+
 
 def submit_to_cluster(args) -> int:
     """
@@ -54,6 +59,7 @@ def submit_to_cluster(args) -> int:
         return 1
 
     forwarded: list[str] = ["--repo", args.repo,
+                            "--source", args.source,
                             "--target-mpp", str(args.target_mpp),
                             "--patch", str(args.patch),
                             "--batch", str(args.batch),
@@ -106,12 +112,59 @@ def submit_to_cluster(args) -> int:
                   dry_run=args.dry_run)
 
 
+
+def warm_up(model, image_processor, genes, all_genes, patch, device) -> None:
+    """
+    Run one throwaway tile before the real loop, and route around cuDNN if it
+    cannot handle this GPU.
+
+    The backbone is a DINOv2-giant whose patch embedding is a 14x14 stride-14
+    convolution into 1536 channels. cuDNN 9 ships no engine for that shape on
+    Volta, so the first forward dies with "GET was unable to find an engine to
+    execute this computation" -- after the slide has been tiled and the weights
+    loaded, which is an expensive place to discover it.
+
+    Disabling cuDNN costs almost nothing: that convolution is the only one in
+    the model, and with stride equal to kernel it is a reshape and a matrix
+    multiply either way. Everything after it is attention and linear layers,
+    which never touched cuDNN. So probe with the real computation, and fall
+    back only if it genuinely fails.
+    """
+    import torch
+    from PIL import Image
+
+    probe = Image.new("RGB", (patch, patch), (200, 180, 200))
+    batch = image_processor(probe).unsqueeze(0).to(device)
+
+    def forward():
+        with torch.inference_mode():
+            if all_genes:
+                model(batch)
+            else:
+                model.predict_genes(batch, genes)
+
+    try:
+        forward()
+        return
+    except RuntimeError as err:
+        if "unable to find an engine" not in str(err):
+            raise
+    torch.backends.cudnn.enabled = False
+    print("cuDNN has no kernel for this backbone on this GPU; running without it.",
+          file=sys.stderr)
+    forward()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     ap.add_argument("slide", help="Path to the whole-slide image")
     ap.add_argument("--repo", default="ratschlab/DeepSpotM")
+    ap.add_argument("--source", default="scgpt", choices=SOURCES,
+                    help="Which frozen gene-embedding pathway conditions the "
+                         "gene router. The five are not interchangeable, so "
+                         "the choice is recorded in the output header.")
     ap.add_argument("--genes", nargs="*", default=DEFAULT_GENES)
     ap.add_argument("--all", action="store_true", help="Every gene the model predicts")
     ap.add_argument("--target-mpp", type=float, default=0.5,
@@ -199,8 +252,8 @@ def main() -> int:
     print(f"Level {level} ({downsample:.1f}x, {downsample * mpp:.3f} µm/px), "
           f"patch {args.patch}px = {side0}px at level 0")
 
-    print(f"Loading {args.repo} …")
-    model, image_processor = DeepSpotM.from_pretrained(args.repo)
+    print(f"Loading {args.repo} (source {args.source}) …")
+    model, image_processor = DeepSpotM.from_pretrained(args.repo, source=args.source)
     model = model.eval().to(args.device)
 
     gene_names = list(model.gene_names)
@@ -237,6 +290,8 @@ def main() -> int:
         return 1
     print(f"{len(coords):,} patches on tissue")
 
+    warm_up(model, image_processor, genes, args.all, args.patch, args.device)
+
     values = np.zeros((len(coords), len(genes)), dtype=np.float32)
     with torch.inference_mode():
         for start in range(0, len(coords), args.batch):
@@ -266,8 +321,12 @@ def main() -> int:
         "patches": [{"x": x, "y": y} for x, y in coords],
         "side": side0,
         "dtype": dtype,
-        "model": f"DeepSpot-M ({len(genes)} genes)",
-        "modelId": f"deepspot-m-{len(genes)}",
+        "model": f"DeepSpot-M {args.source} ({len(genes)} genes)",
+        # The source is part of the identity, not a footnote: the same tile run
+        # through two pathways gives two different numbers, and a map that does
+        # not say which one it came from cannot be compared with another.
+        "modelId": f"deepspot-m-{args.source}-{len(genes)}",
+        "source": args.source,
         "createdAt": __import__("datetime").datetime.now().astimezone().isoformat(),
         "mpp": mpp,
     }
