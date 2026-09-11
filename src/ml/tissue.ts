@@ -238,6 +238,22 @@ export function scoreOverview(
     histogram[v]++;
   }
 
+  /**
+   * One occupied bin means there is nothing to separate.
+   *
+   * Otsu's between-class variance never goes positive, so the split falls to 0,
+   * the span to 1, and both levels below land UNDER the score of plain glass —
+   * the floor of 6 then admits everything, and a featureless image comes back
+   * as tissue from edge to edge. Real scans carry enough noise never to hit
+   * this exactly, but an image of a single colour has no tissue in it, and
+   * saying so is better than thresholding a distribution that is not there.
+   */
+  let occupied = 0;
+  for (let v = 0; v < 256; v++) if (histogram[v] > 0) occupied++;
+  if (occupied < 2) {
+    return { score, auto: 0, glass: 0, span: 1, relaxed: 256, weakLevel: 256 };
+  }
+
   const auto = otsu(histogram, w * h);
 
   /**

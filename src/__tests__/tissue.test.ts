@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectTissue } from "../ml/tissue";
+import { detectTissue, scoreOverview } from "../ml/tissue";
 import { areaOf } from "../annotate/types";
 import type { SlideSource, SlideMeta } from "../slide/types";
 
@@ -150,5 +150,33 @@ describe("tissue detection", () => {
       // A chord joining the fragments would span most of the 400px width.
       expect(Math.max(...xs) - Math.min(...xs)).toBeLessThan(120);
     }
+  });
+});
+
+describe("a featureless overview", () => {
+  /**
+   * The Python port failed exactly here, and the two have to agree. With one
+   * occupied histogram bin there is no split to find, and the levels derived
+   * from a span of 1 sit below the score of glass — so without a guard the
+   * whole image reads as tissue.
+   */
+  it("has no tissue in it", () => {
+    const w = 64;
+    const h = 48;
+    const rgba = new Uint8ClampedArray(w * h * 4);
+    for (let i = 0; i < w * h; i++) {
+      rgba[i * 4] = 245;
+      rgba[i * 4 + 1] = 245;
+      rgba[i * 4 + 2] = 245;
+      rgba[i * 4 + 3] = 255;
+    }
+    const scored = scoreOverview({
+      rgba, w, h, step: 1,
+      level: { level: 0, width: w, height: h, downsample: 1 },
+      originX: 0, originY: 0, spanX: w, spanY: h,
+    });
+    // Nothing can clear a threshold above the top of the range.
+    expect(scored.relaxed).toBeGreaterThan(255);
+    expect(scored.weakLevel).toBeGreaterThan(255);
   });
 });
