@@ -8,7 +8,7 @@
 
 [![License](https://img.shields.io/badge/license-MIT-4fd1c5?style=flat-square)](LICENSE)
 [![Node](https://img.shields.io/badge/node-20%2B-4fd1c5?style=flat-square)](package.json)
-[![Tests](https://img.shields.io/badge/tests-280%20passing-4fd1c5?style=flat-square)](src/__tests__)
+[![Tests](https://img.shields.io/badge/tests-285%20passing-4fd1c5?style=flat-square)](src/__tests__)
 [![Slides](https://img.shields.io/badge/slides-never%20uploaded-8b949e?style=flat-square)](#privacy)
 
 [Tutorial](TUTORIAL.md) · [Roadmap](ROADMAP.md) · [Website](https://glastonburyc.github.io/slidecraft/)
@@ -116,13 +116,18 @@ the inverse of the goblet map at the top of this page.
 
 <img src="docs/shots/virtual-st-stroma.jpg" alt="The same tissue read as a stromal module, the inverse of the goblet map">
 
-Derive your own from a single-cell atlas, filtered to the disease you care
-about:
+For more depth than fourteen hand-grouped modules, `signatures/ibd-colon.json`
+carries 111 annotated cell types derived from 156,905 colonic cells across
+ulcerative colitis, Crohn's disease and normal — load it through **Virtual ST →
+Load more**. Derive your own from any tissue and disease the Census covers:
 
 ```bash
 python scripts/signatures_from_cellxgene.py --tissue colon \
     --disease "ulcerative colitis" --disease "Crohn disease" --disease normal
 ```
+
+Note that colonic IBD sits under `tissue_general == "colon"`; `"large intestine"`
+holds none of it.
 
 > Predicted expression is a hypothesis from morphology, not a measurement.
 > DeepSpot-M was trained on oncology cohorts, so genes that are out of that
@@ -195,7 +200,7 @@ Runtime's wasm is self-hosted rather than loaded from a CDN.
 
 ```bash
 npm run dev            # dev server with the required headers
-npm test               # 280 tests, headless
+npm test               # 285 tests, headless
 npm run test:scripts   # the Python launcher's tests
 npm run build          # typecheck + production build
 ```
