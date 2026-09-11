@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { ModelSpec } from "./registry";
 import type { SignatureSet } from "./signatures";
+import { BUILTIN_SIGNATURES } from "./builtinSignatures";
 import type { SpatialResult } from "./spatialResult";
 
 /**
@@ -31,7 +32,8 @@ interface SpatialState {
   gene: string | null;
   /** Whether the map shows one gene or a cell-type signature score. */
   mode: "gene" | "signature";
-  signatures: SignatureSet | null;
+  /** Never null: falls back to the built-in modules. */
+  signatures: SignatureSet;
   signatureName: string | null;
   /** Opacity of the expression overlay, separate from annotation opacity. */
   opacity: number;
@@ -87,7 +89,10 @@ export const useSpatial = create<SpatialState>((set, get) => ({
   result: null,
   gene: null,
   mode: "gene",
-  signatures: null,
+  // Built in, so a map that has just loaded already has something worth
+  // looking at. Modules whose genes this map does not carry are filtered out
+  // downstream, so the same list serves eight genes and nineteen thousand.
+  signatures: BUILTIN_SIGNATURES,
   signatureName: null,
   opacity: 0.75,
   visible: true,
@@ -115,12 +120,16 @@ export const useSpatial = create<SpatialState>((set, get) => ({
   setMode: (mode) => set({ mode }),
   // Importing a set selects its first signature, so the map changes on import
   // rather than leaving the user to guess that anything happened.
-  setSignatures: (signatures) =>
+  // Passing null goes back to the built-ins rather than to nothing: losing the
+  // modules is never what "use different signatures" was asking for.
+  setSignatures: (signatures) => {
+    const next = signatures ?? BUILTIN_SIGNATURES;
     set({
-      signatures,
-      signatureName: signatures?.signatures[0]?.name ?? null,
-      mode: signatures ? "signature" : "gene",
-    }),
+      signatures: next,
+      signatureName: next.signatures[0]?.name ?? null,
+      mode: "signature",
+    });
+  },
   setSignatureName: (signatureName) => set({ signatureName, mode: "signature" }),
   setOpacity: (opacity) => set({ opacity }),
   setVisible: (visible) => set({ visible }),

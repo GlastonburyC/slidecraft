@@ -91,6 +91,7 @@ export function SpatialPanel({
 
   useEffect(() => { setTissueMask(onTissue); }, [onTissue, setTissueMask]);
 
+
   const shown = onTissueOnly && onTissue
     ? onTissue.reduce((n, v) => n + v, 0)
     : (result?.patches.length ?? 0);
@@ -151,6 +152,21 @@ export function SpatialPanel({
     () => (result && signatures ? usableSignatures(result, signatures) : []),
     [result, signatures],
   );
+  /**
+   * Show the best-covered module as soon as a map arrives.
+   *
+   * The alternative is an expression map that loads and draws nothing until
+   * someone picks a gene out of a list of nineteen thousand — and the first
+   * gene anyone picks reads as static, because one predicted gene carries all
+   * of its own error. Opening on a module means the first thing seen is the
+   * thing worth seeing. Only ever fills a blank: any choice already made is
+   * left alone.
+   */
+  useEffect(() => {
+    if (!result || gene || signatureName) return;
+    const best = covered[0];
+    if (best) setSignatureName(best.signature.name);
+  }, [result, gene, signatureName, covered, setSignatureName]);
 
   const loadSignatures = async (file: File) => {
     try {
@@ -350,30 +366,6 @@ export function SpatialPanel({
                 )}
               </div>
             </>
-          ) : !signatures ? (
-            <>
-              <div className="hint">
-                Average a marker set instead of reading one gene — the independent part of the
-                per-gene error averages down, and it answers where a cell type is rather than what
-                one transcript is doing.
-              </div>
-              <label className="field">
-                <span>Signatures</span>
-                <input
-                  type="file"
-                  accept=".json"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) void loadSignatures(f);
-                    e.target.value = "";
-                  }}
-                />
-              </label>
-              <div className="picker-hint">
-                Derive them from a single-cell atlas with{" "}
-                <code>scripts/signatures_from_cellxgene.py --tissue lung</code>.
-              </div>
-            </>
           ) : (
             <>
               <div className="scroll-list scroll-list--short">
@@ -403,11 +395,36 @@ export function SpatialPanel({
                 )}
               </div>
               <div className="picker-hint">
+                A module averages its genes after standardising each one, so an abundant gene
+                cannot drown the rest — which is why a module reads as tissue architecture where
+                a single gene reads as static.
+              </div>
+              <div className="picker-hint">
                 {signatures.source}
                 {covered.some((c) => c.coverage.found < 8) &&
-                  " · a signature scored on only a handful of its genes is a weak one"}
+                  " · a module scored on only a handful of its genes is a weak one"}
               </div>
-              <button className="mini" onClick={() => setSignatures(null)}>use different signatures</button>
+              <label className="field">
+                <span>Load more</span>
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void loadSignatures(f);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              <div className="picker-hint">
+                Derive weighted ones from a single-cell atlas with{" "}
+                <code>scripts/signatures_from_cellxgene.py --tissue colon</code>.
+              </div>
+              {signatures.source !== "Slidecraft built-in modules" && (
+                <button className="mini" onClick={() => setSignatures(null)}>
+                  back to the built-in modules
+                </button>
+              )}
             </>
           )}
 
