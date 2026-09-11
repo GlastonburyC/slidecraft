@@ -103,6 +103,16 @@ def score_overview(rgb: np.ndarray,
     score = np.rint(np.maximum(saturation, darkness)).clip(0, 255).astype(np.uint8)
 
     histogram = np.bincount(score.ravel(), minlength=256)
+
+    # One occupied bin means there is nothing to separate: Otsu's between-class
+    # variance never goes positive, `auto` falls to 0, and the levels below --
+    # anchored on a span of 1 and floored at 6 -- land UNDER the score of plain
+    # glass, so a featureless image comes back as tissue everywhere. An image of
+    # a single colour has no tissue in it; say so rather than thresholding noise
+    # that is not there.
+    if int((histogram > 0).sum()) < 2:
+        return OverviewScore(score, 0, 0, 1, 256, 256)
+
     auto = otsu(histogram, score.size)
 
     # Blank slide is the tallest peak below the automatic threshold, so the
