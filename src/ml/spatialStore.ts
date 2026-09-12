@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { ModelSpec } from "./registry";
-import type { SignatureSet } from "./signatures";
+import type { Signature, SignatureSet } from "./signatures";
 import { BUILTIN_SIGNATURES } from "./builtinSignatures";
 import type { SpatialResult } from "./spatialResult";
 
@@ -71,6 +71,8 @@ interface SpatialState {
   setGene: (g: string | null) => void;
   setMode: (m: "gene" | "signature") => void;
   setSignatures: (s: SignatureSet | null) => void;
+  /** Add one module and select it, replacing any of the same name. */
+  addSignature: (s: Signature) => void;
   setSignatureName: (n: string | null) => void;
   setOpacity: (v: number) => void;
   setVisible: (v: boolean) => void;
@@ -130,6 +132,27 @@ export const useSpatial = create<SpatialState>((set, get) => ({
       mode: "signature",
     });
   },
+  /**
+   * A module derived from a region you drew joins the list and is selected.
+   *
+   * Selected because the point of saving it is to see where else it fits —
+   * leaving the user to find it in a list of a hundred and eleven would be
+   * asking them to do the one step the feature exists to skip. Replacing by
+   * name so that re-deriving it from a corrected region updates it rather than
+   * leaving two modules that differ invisibly.
+   */
+  addSignature: (signature) =>
+    set((s) => ({
+      signatures: {
+        ...s.signatures,
+        signatures: [
+          signature,
+          ...s.signatures.signatures.filter((x) => x.name !== signature.name),
+        ],
+      },
+      signatureName: signature.name,
+      mode: "signature",
+    })),
   setSignatureName: (signatureName) => set({ signatureName, mode: "signature" }),
   setOpacity: (opacity) => set({ opacity }),
   setVisible: (visible) => set({ visible }),

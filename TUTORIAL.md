@@ -13,7 +13,8 @@ Each section stands on its own, so jump to what you need:
 [cell segmentation](#cells) · [patching](#patches) ·
 [the prediction loop](#predict) · [virtual spatial transcriptomics](#spatial) ·
 [modules](#modules) · [region enrichment](#enrichment) ·
-[gradients along an axis](#gradients) · [running on a cluster](#cluster) ·
+[find the others like it](#similar) · [gradients along an axis](#gradients) ·
+[running on a cluster](#cluster) ·
 [export to scanpy](#anndata)
 
 ---
@@ -501,6 +502,39 @@ mean in, mean out, difference, AUC, p and q.
 > patches are near-copies of each other, so the effective sample size is well
 > below the patch count and every test is anti-conservative. Rank by AUC; use q
 > to filter obvious noise, not as evidence.
+
+### Find the others like it {#similar}
+
+Draw round one example, ask **Which genes?**, then **Save as a module**. The
+ranked list is already a description of the thing you drew, so keeping it as a
+module and scoring it over every patch says where else on the slide that
+description fits — with nothing trained and nothing labelled.
+
+Both directions are kept. A gene the region is *depleted* of describes it as
+well as one it is full of — "no collagen here" is half of what makes a lymphoid
+aggregate look like one — and the negative weight is what lets the score use it
+that way.
+
+Then **Find the top N% as objects** traces where the field clears a threshold
+and commits those regions as real annotations: select them, drag their corners,
+classify them, delete the ones that are wrong. A percentile rather than a fixed
+value, because a module's score is standardised per slide — 0.8 means something
+different on each one, where "the top 5% of this slide" asks the same question
+everywhere.
+
+Those accepted and rejected regions are exactly what the [prediction
+loop](#predict) trains on, so the intended path is: find candidates this way,
+judge them, then train a head over the patch embeddings and correct *that*.
+
+> A caveat worth holding on to. Predicted expression is a function of the same
+> pixels the morphology encoder sees, so a match here is not independent
+> evidence — it means two regions look alike to a model trained on
+> transcriptomics. That is a useful and interpretable way of looking alike, and
+> it is still looking alike. Treat what comes back as candidates to judge, not
+> as a result.
+
+Only a **gene** enrichment can become a module; a module is a set of genes, and
+a ranking of cell types is a ranking of other modules. The button says so.
 
 ### What changes along an axis? {#gradients}
 

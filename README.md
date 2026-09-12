@@ -8,7 +8,7 @@
 
 [![License](https://img.shields.io/badge/license-MIT-4fd1c5?style=flat-square)](LICENSE)
 [![Node](https://img.shields.io/badge/node-20%2B-4fd1c5?style=flat-square)](package.json)
-[![Tests](https://img.shields.io/badge/tests-313%20passing-4fd1c5?style=flat-square)](src/__tests__)
+[![Tests](https://img.shields.io/badge/tests-327%20passing-4fd1c5?style=flat-square)](src/__tests__)
 [![Slides](https://img.shields.io/badge/slides-never%20uploaded-8b949e?style=flat-square)](#privacy)
 
 [Tutorial](TUTORIAL.md) · [Roadmap](ROADMAP.md) · [Website](https://glastonburyc.github.io/slidecraft/)
@@ -46,6 +46,7 @@ wrong**, and retrain from those edits.
 | **Tiles what you drag** | Patching is a tool, not a dialog. Drag a region and it tiles at your chosen size, snapped to detected tissue, and every patch can become an editable object. |
 | **Predicts expression** | DeepSpot-M reads the H&E and answers with a value per gene. Fourteen cell-type modules ship built in, so a map is readable the moment it loads — or derive your own from a single-cell atlas. |
 | **Answers "what is this?"** | Draw round a region and rank the cell types over-represented in it, not just the genes. Mann-Whitney on module scores, ordered by effect size. |
+| **Finds more like it** | Draw one example, save what is in it as a module, and trace every other region on the slide that fits the same description. |
 | **Follows a gradient** | Drag an arrow — crypt base to surface, mucosa to muscularis — and rank what rises and falls along it. Signed by which way the arrow points. |
 | **Reaches your cluster** | One command submits a whole slide to Slurm over SSH, watches the queue and brings the result back. Your keys and agent, never a password. |
 | **Runs over a folder** | Unattended, one GeoJSON per slide — or a whole transcriptome on your GPU cluster. |
@@ -71,6 +72,7 @@ One short walkthrough per capability, each standing on its own:
 | [Run it on a cluster](TUTORIAL.md#cluster) | Slurm over SSH, your keys, no password |
 | [Modules, not single genes](TUTORIAL.md#modules) | 14 built in, 111 more from CELLxGENE |
 | [What is in this region?](TUTORIAL.md#enrichment) | Rank the cell types, or the genes |
+| [Find the others like it](TUTORIAL.md#similar) | Save a region's signature, then trace the matches |
 | [What changes along an axis?](TUTORIAL.md#gradients) | <kbd>A</kbd> and drag an arrow |
 | [Export](TUTORIAL.md#export) | GeoJSON, patch coordinates, expression CSV |
 | [Export to scanpy](TUTORIAL.md#anndata) | AnnData / SpatialData, for analysis elsewhere |
@@ -254,7 +256,7 @@ Runtime's wasm is self-hosted rather than loaded from a CDN.
 
 ```bash
 npm run dev            # dev server with the required headers
-npm test               # 313 tests, headless
+npm test               # 327 tests, headless
 npm run test:scripts   # the Python launcher, tissue port and AnnData checks
 npm run build          # typecheck + production build
 ```

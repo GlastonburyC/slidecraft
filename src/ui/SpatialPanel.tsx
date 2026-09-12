@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { useAnnotations } from "../annotate/store";
+import { makeAnnotation, useAnnotations } from "../annotate/store";
+import { closeRing } from "../annotate/geometry";
 import { pickRoi, roiHint } from "../annotate/pickRoi";
 import { useMl } from "../ml/mlStore";
 import { buildPatchGrid } from "../ml/patchGrid";
@@ -15,6 +16,9 @@ import {
   axesIn, geneGradient, gradientCsv, signatureGradient, type GradientResult,
 } from "../ml/gradient";
 import { matrixBytes, toAnnDataZip } from "../io/anndata";
+import {
+  latticeOf, moduleFromEnrichment, percentileThreshold, similarRegions,
+} from "../ml/findSimilar";
 import { useSpatial } from "../ml/spatialStore";
 import type { SlideMeta } from "../slide/types";
 import { SpatialMark } from "./SpatialMark";
@@ -49,7 +53,7 @@ export function SpatialPanel({
   const {
     models, activeModelId, status, error, download, progress, result, backend,
     gene, setGene, opacity, setOpacity, visible, setVisible, setActiveModel, setResult,
-    onTissueOnly, setOnTissueOnly, setTissueMask,
+    onTissueOnly, setOnTissueOnly, setTissueMask, addSignature,
     mode, setMode, signatures, setSignatures, signatureName, setSignatureName,
   } = spatialState;
 
@@ -183,6 +187,67 @@ export function SpatialPanel({
    * can put in one array, let alone zip. The button says so and points at the
    * script rather than offering an export that would take the page down.
    */
+  const [findPercentile, setFindPercentile] = useState(95);
+  const [found, setFound] = useState<string | null>(null);
+
+  /**
+   * Save what is in this region as a module, then colour the slide by it.
+   *
+   * The ranked list the enrichment produced is already a description of the
+   * thing you drew. Scoring it everywhere says where else that description
+   * fits — no model trained, nothing labelled, and the answer is a field you
+   * can look at before deciding whether it is worth pursuing.
+   */
+  const saveAsModule = () => {
+    if (!enrichment) return;
+    /*
+     * Named after the region's class, when it has one.
+     *
+     * An unclassified rectangle would otherwise produce a module called
+     * "unclassified", which is the name of nothing and collides with the next
+     * one. Classify the region first and the module inherits that name; until
+     * then it gets a neutral one that at least says where it came from.
+     */
+    const base = regionName?.trim();
+    const meaningful = base && base !== "unclassified" && base !== "selection";
+    addSignature(moduleFromEnrichment(meaningful ? base : "Like this region", enrichment.genes));
+    setFound(null);
+  };
+
+  /**
+   * Turn the field on screen into candidate objects.
+   *
+   * Thresholded at a percentile rather than a value: a module's score is
+   * standardised per slide, so 0.8 means something different on each one,
+   * while "the top 5% of this slide" asks the same question everywhere.
+   */
+  const findSimilar = () => {
+    if (!result || !field) return;
+    const lattice = latticeOf(result);
+    const cut = percentileThreshold(field.values, findPercentile);
+    const regions = similarRegions(field.values, lattice, { threshold: cut, minPatches: 4 });
+    if (!regions.length) {
+      setFound("Nothing cleared that threshold. Lower it, or pick a different module.");
+      return;
+    }
+    const store = useAnnotations.getState();
+    const cls = store.ensureClass(field.label);
+    // Marked as model output, so they read as provisional until judged — and so
+    // a second pass replaces them rather than laying a new set on top.
+    const previous = [...store.items.values()].filter(
+      (a) => a.classId === cls.id && a.source === "model" && !a.locked,
+    );
+    const added = regions.map((r) =>
+      makeAnnotation({ type: "Polygon", coordinates: [closeRing(r.ring)] }, {
+        classId: cls.id,
+        source: "model",
+        modelId: `similar:${field.label}`,
+      }),
+    );
+    store.apply({ label: `Similar to ${field.label} (${added.length})`, removed: previous, added });
+    setFound(`${added.length} region${added.length === 1 ? "" : "s"} above the top ${100 - findPercentile}%.`);
+  };
+
   const annDataMB = result ? matrixBytes(result) / 1e6 : 0;
   const tooBigForAnnData = annDataMB > 600;
 
@@ -583,6 +648,45 @@ export function SpatialPanel({
             />
           </label>
 
+          {/*
+            * Turn whatever is on screen into objects.
+            *
+            * Placed with the field rather than with the enrichment, because it
+            * applies to any module — a built-in one, a cell type from the
+            * Census, or one just derived from a region you drew.
+            */}
+          {field && (
+            <>
+              <label className="field">
+                <span>Top</span>
+                <input
+                  type="range"
+                  min={80}
+                  max={99}
+                  step={1}
+                  value={findPercentile}
+                  onChange={(e) => { setFindPercentile(Number(e.target.value)); setFound(null); }}
+                />
+              </label>
+              <div className="row-actions">
+                <button className="btn" onClick={findSimilar}>
+                  Find the top {100 - findPercentile}% as objects
+                </button>
+              </div>
+              <div className="picker-hint">
+                {found ?? (
+                  <>
+                    Traces where <b>{field.label}</b> is in the top{" "}
+                    {100 - findPercentile}% of this slide, as regions you can select,
+                    edit and classify. A percentile rather than a value, because a
+                    module&rsquo;s score is standardised per slide.
+                  </>
+                )}
+              </div>
+              <div className="ctx-sep" />
+            </>
+          )}
+
           <div className="row-actions">
             <button
               className="btn"
@@ -857,6 +961,44 @@ export function SpatialPanel({
                 the effective sample size is well below the patch count. Read the AUC, use q only
                 to filter noise.
               </div>
+              {/*
+                * From one example to the others.
+                *
+                * The ranked list is already a description of what you drew, so
+                * saving it as a module and scoring it everywhere says where
+                * else that description fits — the candidates a training loop
+                * wants, with nothing trained yet.
+                */}
+              <div className="row-actions">
+                <button
+                  className="btn"
+                  disabled={enrichment.kind !== "gene"}
+                  title={
+                    enrichment.kind === "gene"
+                      ? "Keep these genes as a module, and score it over the whole slide"
+                      : "A module is a set of genes. Ask “Which genes?” of this region instead."
+                  }
+                  onClick={saveAsModule}
+                >
+                  Save as a module
+                </button>
+              </div>
+              <div className="picker-hint">
+                {enrichment.kind === "gene" ? (
+                  <>
+                    Keeps the genes that separate this region either way — depleted
+                    describes it as well as enriched — and colours the slide by how
+                    well the rest of it fits.
+                  </>
+                ) : (
+                  <>
+                    A module is a set of <i>genes</i>, so this ranking of cell types
+                    cannot become one — the names in it are modules, not genes. Ask
+                    <b> Which genes?</b> of the same region and save that.
+                  </>
+                )}
+              </div>
+
               <div className="row-actions">
                 <button
                   className="btn"
