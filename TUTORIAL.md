@@ -13,7 +13,8 @@ Each section stands on its own, so jump to what you need:
 [cell segmentation](#cells) · [patching](#patches) ·
 [the prediction loop](#predict) · [virtual spatial transcriptomics](#spatial) ·
 [modules](#modules) · [region enrichment](#enrichment) ·
-[gradients along an axis](#gradients) · [running on a cluster](#cluster)
+[gradients along an axis](#gradients) · [running on a cluster](#cluster) ·
+[export to scanpy](#anndata)
 
 ---
 
@@ -552,6 +553,53 @@ the result goes back to R or scanpy.
 The Annotations panel exports GeoJSON in level-0 slide pixels, with QuPath's
 `objectType` and `classification` fields, so it round-trips with QuPath in both
 directions.
+
+### Taking an expression map to scanpy {#anndata}
+
+Slidecraft answers spatial questions on the slide. It does not do trajectory
+inference, or differential testing across patients, or most of what the Python
+stack already does well — so a map has to be able to leave.
+
+**Export AnnData** in the Virtual ST tab writes `<slide>.anndata.zarr.zip`:
+
+```python
+import zipfile, anndata
+zipfile.ZipFile("slide.anndata.zarr.zip").extractall("slide.zarr")
+adata = anndata.read_zarr("slide.zarr")
+```
+
+What you get:
+
+- `X` — patches by genes, float32, dense. Predicted expression has no zeros to
+  speak of, so a sparse layout would store the same numbers plus two index
+  arrays.
+- `obs` — `x` and `y` of each patch in level-0 pixels, plus `in_tissue` when
+  tissue has been detected. Patches are named by position, so two slides'
+  tables concatenate without collision.
+- `obsm["spatial"]` — patch **centres**, which is what `scanpy` and `squidpy`
+  plotting expect.
+- `uns` — the slide, the model, the pathway, and a line saying these are
+  predictions rather than measurements. Provenance travels with the numbers or
+  it is lost.
+
+It is zarr inside a zip rather than `.h5ad` because writing HDF5 from scratch in
+a browser is a great deal of code to get subtly wrong, where zarr is JSON beside
+raw little-endian blocks.
+
+**For a whole transcriptome, use the script instead.** 32,000 patches by 19,338
+genes is 2.5 GB once widened to the float32 AnnData stores, which is more than a
+tab should assemble — the button says so and disables itself. This streams it a
+block of patches at a time:
+
+```bash
+python scripts/expression_to_anndata.py slide.expression.bin
+python scripts/expression_to_anndata.py slide.expression.bin --genes EPCAM MUC2 COL1A1
+python scripts/expression_to_anndata.py slide.expression.bin --spatialdata
+```
+
+`--genes` is usually what makes a whole transcriptome workable downstream.
+`--spatialdata` additionally writes a SpatialData zarr with the patches as
+points and the map as a table annotating them (`pip install spatialdata`).
 
 ---
 

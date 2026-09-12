@@ -132,7 +132,7 @@
 <article>
 <p>A full pass through the tool: open a slide, annotate it, teach it what tissue looks like on your material, run that over a folder — and read gene expression off the H&E itself.</p>
 <p>Nothing is uploaded. Slides are read in your browser by OpenSlide compiled to WebAssembly, so a 2 GB SVS never leaves the machine.</p>
-<p>Each section stands on its own, so jump to what you need: <a href="#annotate">annotating</a> · <a href="#tissue">tissue detection</a> · <a href="#train-tissue">training a tissue classifier</a> · <a href="#batch">batch over a folder</a> · <a href="#cells">cell segmentation</a> · <a href="#patches">patching</a> · <a href="#predict">the prediction loop</a> · <a href="#spatial">virtual spatial transcriptomics</a> · <a href="#modules">modules</a> · <a href="#enrichment">region enrichment</a> · <a href="#gradients">gradients along an axis</a> · <a href="#cluster">running on a cluster</a></p>
+<p>Each section stands on its own, so jump to what you need: <a href="#annotate">annotating</a> · <a href="#tissue">tissue detection</a> · <a href="#train-tissue">training a tissue classifier</a> · <a href="#batch">batch over a folder</a> · <a href="#cells">cell segmentation</a> · <a href="#patches">patching</a> · <a href="#predict">the prediction loop</a> · <a href="#spatial">virtual spatial transcriptomics</a> · <a href="#modules">modules</a> · <a href="#enrichment">region enrichment</a> · <a href="#gradients">gradients along an axis</a> · <a href="#cluster">running on a cluster</a> · <a href="#anndata">export to scanpy</a></p>
 <hr>
 <h3 id="open">1. Open a slide</h3>
 <p>Drag a slide anywhere onto the window, or use <strong>Choose files</strong>.</p>
@@ -278,6 +278,20 @@ python scripts/signatures_from_cellxgene.py --tissue colon \
 <h3 id="export">13. Export</h3>
 <p>The Annotations panel exports GeoJSON in level-0 slide pixels, with QuPath's</p>
 <p>directions.</p>
+<h4 id="anndata">Taking an expression map to scanpy</h4>
+<p>Slidecraft answers spatial questions on the slide. It does not do trajectory inference, or differential testing across patients, or most of what the Python stack already does well — so a map has to be able to leave.</p>
+<p><strong>Export AnnData</strong> in the Virtual ST tab writes <code>&lt;slide&gt;.anndata.zarr.zip</code>:</p>
+<pre><code>import zipfile, anndata
+zipfile.ZipFile("slide.anndata.zarr.zip").extractall("slide.zarr")
+adata = anndata.read_zarr("slide.zarr")</code></pre>
+<p>What you get:</p>
+<ul><li><code>X</code> — patches by genes, float32, dense. Predicted expression has no zeros to speak of, so a sparse layout would store the same numbers plus two index arrays.</li><li><code>obs</code> — <code>x</code> and <code>y</code> of each patch in level-0 pixels, plus <code>in_tissue</code> when tissue has been detected. Patches are named by position, so two slides' tables concatenate without collision.</li><li><code>obsm["spatial"]</code> — patch <strong>centres</strong>, which is what <code>scanpy</code> and <code>squidpy</code> plotting expect.</li><li><code>uns</code> — the slide, the model, the pathway, and a line saying these are predictions rather than measurements. Provenance travels with the numbers or it is lost.</li></ul>
+<p>It is zarr inside a zip rather than <code>.h5ad</code> because writing HDF5 from scratch in a browser is a great deal of code to get subtly wrong, where zarr is JSON beside raw little-endian blocks.</p>
+<p><strong>For a whole transcriptome, use the script instead.</strong> 32,000 patches by 19,338 genes is 2.5 GB once widened to the float32 AnnData stores, which is more than a tab should assemble — the button says so and disables itself. This streams it a block of patches at a time:</p>
+<pre><code>python scripts/expression_to_anndata.py slide.expression.bin
+python scripts/expression_to_anndata.py slide.expression.bin --genes EPCAM MUC2 COL1A1
+python scripts/expression_to_anndata.py slide.expression.bin --spatialdata</code></pre>
+<p>points and the map as a table annotating them (<code>pip install spatialdata</code>).</p>
 <hr>
 <h3 id="troubleshooting">Troubleshooting</h3>
 <p><strong>"Not cross-origin isolated."</strong> The server is not sending COOP/COEP headers.</p>

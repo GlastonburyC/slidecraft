@@ -8,7 +8,7 @@
 
 [![License](https://img.shields.io/badge/license-MIT-4fd1c5?style=flat-square)](LICENSE)
 [![Node](https://img.shields.io/badge/node-20%2B-4fd1c5?style=flat-square)](package.json)
-[![Tests](https://img.shields.io/badge/tests-301%20passing-4fd1c5?style=flat-square)](src/__tests__)
+[![Tests](https://img.shields.io/badge/tests-313%20passing-4fd1c5?style=flat-square)](src/__tests__)
 [![Slides](https://img.shields.io/badge/slides-never%20uploaded-8b949e?style=flat-square)](#privacy)
 
 [Tutorial](TUTORIAL.md) · [Roadmap](ROADMAP.md) · [Website](https://glastonburyc.github.io/slidecraft/)
@@ -50,6 +50,7 @@ wrong**, and retrain from those edits.
 | **Reaches your cluster** | One command submits a whole slide to Slurm over SSH, watches the queue and brings the result back. Your keys and agent, never a password. |
 | **Runs over a folder** | Unattended, one GeoJSON per slide — or a whole transcriptome on your GPU cluster. |
 | **Speaks GeoJSON** | QuPath-compatible in both directions, so nothing dead-ends here. |
+| **Hands over to Python** | Export a map as AnnData — patch centres in `obsm["spatial"]`, provenance in `uns` — and carry on in scanpy, squidpy or SpatialData. |
 
 ## Tutorials
 
@@ -72,6 +73,7 @@ One short walkthrough per capability, each standing on its own:
 | [What is in this region?](TUTORIAL.md#enrichment) | Rank the cell types, or the genes |
 | [What changes along an axis?](TUTORIAL.md#gradients) | <kbd>A</kbd> and drag an arrow |
 | [Export](TUTORIAL.md#export) | GeoJSON, patch coordinates, expression CSV |
+| [Export to scanpy](TUTORIAL.md#anndata) | AnnData / SpatialData, for analysis elsewhere |
 
 ## Quick start
 
@@ -252,8 +254,8 @@ Runtime's wasm is self-hosted rather than loaded from a CDN.
 
 ```bash
 npm run dev            # dev server with the required headers
-npm test               # 301 tests, headless
-npm run test:scripts   # the Python launcher's tests
+npm test               # 313 tests, headless
+npm run test:scripts   # the Python launcher, tissue port and AnnData checks
 npm run build          # typecheck + production build
 ```
 

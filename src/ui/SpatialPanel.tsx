@@ -14,6 +14,7 @@ import {
 import {
   axesIn, geneGradient, gradientCsv, signatureGradient, type GradientResult,
 } from "../ml/gradient";
+import { matrixBytes, toAnnDataZip } from "../io/anndata";
 import { useSpatial } from "../ml/spatialStore";
 import type { SlideMeta } from "../slide/types";
 import { SpatialMark } from "./SpatialMark";
@@ -175,6 +176,15 @@ export function SpatialPanel({
       }, 0);
     });
   };
+
+  /*
+   * A whole transcriptome is 32,000 patches by 19,338 genes, which is 2.5 GB
+   * once it is widened to the float32 AnnData stores — several times what a tab
+   * can put in one array, let alone zip. The button says so and points at the
+   * script rather than offering an export that would take the page down.
+   */
+  const annDataMB = result ? matrixBytes(result) / 1e6 : 0;
+  const tooBigForAnnData = annDataMB > 600;
 
   const shown = onTissueOnly && onTissue
     ? onTissue.reduce((n, v) => n + v, 0)
@@ -586,7 +596,43 @@ export function SpatialPanel({
             >
               Export CSV
             </button>
+            <button
+              className="btn"
+              disabled={tooBigForAnnData}
+              title={
+                tooBigForAnnData
+                  ? `${(annDataMB).toFixed(0)} MB dense — too large to assemble in a tab. `
+                    + "Convert the .expression.bin with scripts/expression_to_anndata.py instead."
+                  : "AnnData as zipped zarr, for scanpy, squidpy or SpatialData"
+              }
+              onClick={() => {
+                const zip = toAnnDataZip(result, { tissueMask: onTissueOnly ? onTissue : null });
+                saveBytes(
+                  zip,
+                  `${result.slide.replace(/\.[^.]+$/, "")}.anndata.zarr.zip`,
+                  "application/zip",
+                );
+              }}
+            >
+              Export AnnData
+            </button>
             <button className="btn" onClick={() => setResult(null)}>Clear</button>
+          </div>
+          <div className="picker-hint">
+            {tooBigForAnnData ? (
+              <>
+                AnnData would be {annDataMB.toFixed(0)} MB dense — more than a tab should
+                assemble. Convert the <code>.expression.bin</code> with{" "}
+                <code>scripts/expression_to_anndata.py</code>, which streams it.
+              </>
+            ) : (
+              <>
+                AnnData is written as zipped zarr — unzip it and{" "}
+                <code>anndata.read_zarr</code> opens it, with patch centres in{" "}
+                <code>obsm[&quot;spatial&quot;]</code> and the model it came from in{" "}
+                <code>uns</code>. CSV is a row per patch, for anything that reads a table.
+              </>
+            )}
           </div>
 
           <div className="ctx-sep" />
@@ -850,6 +896,20 @@ export function SpatialPanel({
 }
 
 /** Pyramid level nearest a target µm/pixel; finer wins a tie. */
+/** Same as saveText, but for bytes that are already assembled. */
+function saveBytes(bytes: Uint8Array, filename: string, type: string) {
+  // Copied into a fresh buffer: the view may be over a larger allocation, and
+  // Blob would otherwise take the whole thing.
+  const url = URL.createObjectURL(new Blob([bytes.slice()], { type }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 function saveText(text: string, filename: string, type: string) {
   const url = URL.createObjectURL(new Blob([text], { type }));
   const a = document.createElement("a");
