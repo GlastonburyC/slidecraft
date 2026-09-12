@@ -95,6 +95,17 @@ PANELS = {"ibd-colon": [g for block in IBD_PANEL.values() for g in block]}
 SOURCES = ["evo2", "orthrus", "prott5", "scgpt", "apertus"]
 
 
+def shard_arg(text: str) -> tuple[int, int]:
+    """Parse `I/N`, so a bad value fails at the command line and not on a node."""
+    try:
+        index, total = (int(x) for x in text.split("/", 1))
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected I/N, got {text!r}") from None
+    if total < 1:
+        raise argparse.ArgumentTypeError("N must be at least 1")
+    return index, total
+
+
 def submit_to_cluster(args) -> int:
     """
     Hand this run to Slurm rather than doing it here.
@@ -127,6 +138,8 @@ def submit_to_cluster(args) -> int:
         forwarded += ["--genes", *args.genes]
     if args.stride:
         forwarded += ["--stride", str(args.stride)]
+    if args.shard:
+        forwarded += ["--shard", f"{args.shard[0]}/{args.shard[1]}"]
     if args.fp32:
         forwarded.append("--fp32")
 
@@ -231,6 +244,10 @@ def main() -> int:
                     help="Magnification to read at; the model was trained near 20x")
     ap.add_argument("--patch", type=int, default=224)
     ap.add_argument("--stride", type=int, default=None, help="Defaults to no overlap")
+    ap.add_argument("--shard", type=shard_arg, default=None, metavar="I/N",
+                    help="Do only the Ith of N contiguous blocks of patches, for "
+                         "splitting one slide across several GPUs. Merge the "
+                         "pieces with scripts/merge_shards.py.")
     ap.add_argument("--batch", type=int, default=32)
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--min-tissue", type=float, default=0.25,
@@ -387,6 +404,31 @@ def main() -> int:
         return 1
     print(f"{len(coords):,} patches on tissue")
 
+    if args.shard:
+        """
+        One slice of the work, for running the same slide on several GPUs.
+
+        A contiguous block rather than every Nth patch: every patch costs the
+        same to embed, so there is nothing to balance, and a contiguous block
+        keeps each worker reading one region of the slide instead of all of
+        them seeking across the whole thing.
+
+        The pieces are concatenated in shard order by merge_shards.py, which is
+        why the blocks must partition the list in order and not overlap.
+        """
+        index, total = args.shard
+        if not 1 <= index <= total:
+            print(f"--shard {index}/{total} is out of range.", file=sys.stderr)
+            return 1
+        per = -(-len(coords) // total)          # ceiling, so the last is short
+        start = (index - 1) * per
+        coords = coords[start : start + per]
+        print(f"shard {index}/{total}: patches {start:,}..{start + len(coords):,}")
+        if not coords:
+            print("Nothing in this shard; the slide has fewer patches than shards.",
+                  file=sys.stderr)
+            return 1
+
     warm_up(model, image_processor, genes, args.all, args.patch, args.device)
 
     values = np.zeros((len(coords), len(genes)), dtype=np.float32)
@@ -416,6 +458,7 @@ def main() -> int:
         "slide": slide_path.name,
         "genes": genes,
         "patches": [{"x": x, "y": y} for x, y in coords],
+        **({"shard": list(args.shard)} if args.shard else {}),
         "side": side0,
         "dtype": dtype,
         "model": f"DeepSpot-M {args.source} ({len(genes)} genes)",

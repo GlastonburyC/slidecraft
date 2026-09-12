@@ -14,7 +14,7 @@ Each section stands on its own, so jump to what you need:
 [the prediction loop](#predict) · [virtual spatial transcriptomics](#spatial) ·
 [modules](#modules) · [region enrichment](#enrichment) ·
 [find the others like it](#similar) · [gradients along an axis](#gradients) ·
-[the expression floor](#expression-floor) ·
+[the expression floor](#expression-floor) · [sharding across GPUs](#shards) ·
 [running on a cluster](#cluster) ·
 [export to scanpy](#anndata)
 
@@ -403,6 +403,28 @@ Slidecraft loads a map that size in well under a second and switches gene in
 about 70 ms. The values stay in the half precision they arrived in and are
 decoded one gene at a time, because widening 620 million of them to fp32 up
 front is several gigabytes to show one gene.
+
+### Splitting one slide across several GPUs {#shards}
+
+A strided run is the case that needs this: quarter-stride is sixteen times the
+patches, and patch count is the only axis that costs. `--shard I/N` does the Ith
+of N contiguous blocks, so a Slurm array can put each on its own GPU:
+
+```bash
+python scripts/predict_expression.py slide.svs --panel ibd-colon --stride 56 \
+    --shard $SLURM_ARRAY_TASK_ID/4 --out "slide.shard${SLURM_ARRAY_TASK_ID}of4.bin"
+python scripts/merge_shards.py slide.shard*of4.bin --out slide.expression.bin
+```
+
+Contiguous blocks rather than every Nth patch: every patch costs the same to
+embed, so there is nothing to balance, and a block keeps each worker reading one
+region of the slide instead of all four seeking across the whole of it.
+
+Make the merge depend on the array — `sbatch --dependency=afterok:<jobid>` — so
+it cannot run on a partial set. It refuses one anyway: every shard has to be
+present exactly once, and they must agree on the genes, the patch size, the
+stride and the slide, because a merge that quietly accepted mismatched pieces
+would produce a file that opens, draws, and is wrong.
 
 ### Running it on a cluster {#cluster}
 
