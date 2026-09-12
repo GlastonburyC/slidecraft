@@ -58,6 +58,15 @@ The **Slides** panel lists what arrived — how many annotations, how many patch
 by how many genes, and from which file — because annotations appearing that you
 did not draw are unsettling when nothing says why.
 
+A map arriving switches you to **Virtual ST**, since seeing it is why the file
+was dropped.
+
+**Dropping a slide on its own cannot bring its map with it.** A browser only
+sees the files it was handed, however adjacent they are on disk — so drop the
+*folder*, or drop the slide and then drop the `.expression.bin` onto it
+afterwards, which attaches it to whatever is open. A map computed on a different
+slide is refused rather than drawn in the wrong place.
+
 The lamp beside it turns this off, for a slide whose neighbours on disk are
 stale: an old segmentation you do not want coloured over the new one, or a map
 from a model you have since replaced. It never overwrites either way — anything

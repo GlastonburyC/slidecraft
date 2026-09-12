@@ -145,6 +145,8 @@
 <h3 id="associated">3. What comes with the slide</h3>
 <p>A slide rarely arrives alone. A batch run writes <code>&lt;slide&gt;.geojson</code> beside each slide and a GPU run writes <code>&lt;slide&gt;.expression.bin</code>, so dropping the folder back in brings the work with it rather than leaving it to be imported by hand, one slide at a time.</p>
 <p>The <strong>Slides</strong> panel lists what arrived — how many annotations, how many patches by how many genes, and from which file — because annotations appearing that you did not draw are unsettling when nothing says why.</p>
+<p>A map arriving switches you to <strong>Virtual ST</strong>, since seeing it is why the file was dropped.</p>
+<p><strong>Dropping a slide on its own cannot bring its map with it.</strong> A browser only sees the files it was handed, however adjacent they are on disk — so drop the <em>folder</em>, or drop the slide and then drop the <code>.expression.bin</code> onto it afterwards, which attaches it to whatever is open. A map computed on a different slide is refused rather than drawn in the wrong place.</p>
 <p>The lamp beside it turns this off, for a slide whose neighbours on disk are stale: an old segmentation you do not want coloured over the new one, or a map from a model you have since replaced. It never overwrites either way — anything already saved for the slide wins, and a map computed on a different slide is refused rather than drawn in the wrong place.</p>
 <h3 id="annotate">4. Annotate</h3>
 <p>Pick a tool from the rail. Each has a one-key shortcut, shown on the button.</p>

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
-import { filesFromDataTransfer, filesFromInput, resolveSlides } from "../slide/dropResolver";
+import {
+  filesFromDataTransfer, filesFromInput, isExpressionFile, resolveSlides,
+} from "../slide/dropResolver";
 import { closeSlide, getWorkerCount, openSlide, type OpenProgress } from "../slide/openslideSource";
 import type { ResolvedSlide, SlideSource } from "../slide/types";
 import { SlideViewer } from "../viewer/SlideViewer";
@@ -82,6 +84,15 @@ export function App() {
     (bbox: [number, number, number, number]) => focuserRef.current?.(bbox),
     [],
   );
+  /**
+   * The open slide, readable from the drop listener.
+   *
+   * That listener is registered once, so a value closed over there would be
+   * whatever was open at registration — which for the first drop is nothing.
+   */
+  const sourceRef = useRef<SlideSource | null>(null);
+  useEffect(() => { sourceRef.current = source; }, [source]);
+
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -128,6 +139,45 @@ export function App() {
       if (next.length === 0) setSource(null);
       return next;
     });
+  }, []);
+
+  /**
+   * Attach an expression map to the slide that is open.
+   *
+   * Dropped on its own as well as paired with a slide, because the browser only
+   * ever sees the files it was handed — dropping `slide.svs` alone cannot bring
+   * `slide.expression.bin` with it, however adjacent they are on disk. So the
+   * map can follow afterwards and still land.
+   *
+   * Refused rather than warned about when the names disagree: expression drawn
+   * over the wrong slide is the most convincing wrong result this app could
+   * produce.
+   */
+  const attachExpression = useCallback(async (file: File, slideName: string) => {
+    useSpatial.getState().setAttaching(file.name);
+    try {
+      const loaded = parseExpressionFile(await file.arrayBuffer());
+      if (!matchesSlide(loaded, slideName)) {
+        setError(`${file.name} was computed on ${loaded.slide}, not ${slideName}. Not loaded.`);
+        return false;
+      }
+      useSpatial.getState().setResult(loaded);
+      setAttached((prev) => [
+        ...prev,
+        `${loaded.patches.length.toLocaleString()} patches × ` +
+          `${loaded.genes.length.toLocaleString()} genes from ${file.name}`,
+      ]);
+      // Straight to the panel that shows it. A map arriving is the reason the
+      // file was dropped, and leaving the user to find the tab is asking them
+      // to do the step the drop was meant to be.
+      setTab("spatial");
+      return true;
+    } catch (err) {
+      setError(`Could not read ${file.name}: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
+    } finally {
+      useSpatial.getState().setAttaching(null);
+    }
   }, []);
 
   const importGeoJSONFile = useCallback(async (file: File) => {
@@ -227,11 +277,28 @@ export function App() {
       if (!e.dataTransfer) return;
       void filesFromDataTransfer(e.dataTransfer)
         .then(async (files) => {
-          // A dropped .geojson is annotations for the open slide, not a slide.
+          // A dropped .geojson is annotations for the open slide, not a slide,
+          // and an .expression.bin on its own is a map for it.
           const geo = files.filter((f) => isGeoJSONFile(f.path));
-          const rest = files.filter((f) => !isGeoJSONFile(f.path));
-          if (rest.length > 0) ingest(resolveSlides(rest));
+          const maps = files.filter((f) => isExpressionFile(f.path));
+          const rest = files.filter((f) => !isGeoJSONFile(f.path) && !isExpressionFile(f.path));
+
+          // Slides first: a map dropped alongside one needs it open to attach.
+          if (rest.length > 0) ingest(resolveSlides([...rest, ...maps]));
           for (const g of geo) await importGeoJSONFile(g.file);
+
+          // Only the loose ones. A map dropped with its slide is paired by the
+          // resolver already, and attaching it twice would say so twice.
+          if (rest.length === 0) {
+            const open = sourceRef.current;
+            for (const m of maps) {
+              if (!open) {
+                setError(`Open the slide first, then drop ${m.file.name} onto it.`);
+                break;
+              }
+              await attachExpression(m.file, open.meta.name);
+            }
+          }
         })
         .catch((err: unknown) => setError(`Could not read the drop: ${String(err)}`));
     };
@@ -382,30 +449,9 @@ export function App() {
     const sidecar = associated && activeIdx !== null
       ? (slides[activeIdx]?.expression ?? null)
       : null;
-    if (sidecar) {
-      useSpatial.getState().setAttaching(sidecar.name);
-      void sidecar.arrayBuffer().then((buf) => {
-        try {
-          const loaded = parseExpressionFile(buf);
-          if (!matchesSlide(loaded, source.meta.name)) {
-            setError(
-              `${sidecar.name} was computed on ${loaded.slide}, not ${source.meta.name}. Not loaded.`,
-            );
-            return;
-          }
-          useSpatial.getState().setResult(loaded);
-          setAttached((prev) => [
-            ...prev,
-            `${loaded.patches.length.toLocaleString()} patches × ` +
-              `${loaded.genes.length.toLocaleString()} genes from ${sidecar.name}`,
-          ]);
-        } catch (err) {
-          setError(`Could not read ${sidecar.name}: ${err instanceof Error ? err.message : String(err)}`);
-        } finally {
-          useSpatial.getState().setAttaching(null);
-        }
-      });
-    }
+    // The same path a loose drop takes, so a map behaves identically however
+    // it arrived — including landing you on the panel that shows it.
+    if (sidecar) void attachExpression(sidecar, source.meta.name);
 
     return () => {
       controller.destroy();

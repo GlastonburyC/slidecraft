@@ -36,6 +36,17 @@ const NOT_ANNOTATIONS = [".onnx.json"];
 /** Precomputed expression maps, likewise named after the slide. */
 const EXPRESSION_SUFFIXES = [".expression.bin", ".expr"];
 
+/**
+ * A map, dropped on its own rather than beside its slide.
+ *
+ * The browser only ever sees the files it was handed, so dropping a slide
+ * cannot bring its neighbours along; the map has to be able to follow.
+ */
+export function isExpressionFile(path: string): boolean {
+  const lower = path.toLowerCase();
+  return EXPRESSION_SUFFIXES.some((x) => lower.endsWith(x));
+}
+
 const extOf = (p: string) => p.slice(p.lastIndexOf(".") + 1).toLowerCase();
 const baseOf = (p: string) => p.slice(p.lastIndexOf("/") + 1);
 const dirOf = (p: string) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
