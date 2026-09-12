@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
-  latticeOf, moduleFromEnrichment, percentileThreshold, similarRegions,
+  latticeOf, moduleFromEnrichment, moduleFromGradient, percentileThreshold, similarRegions,
 } from "../ml/findSimilar";
+import type { GradientStat } from "../ml/gradient";
 import { scoreSignature } from "../ml/signatures";
 import type { GeneStat } from "../ml/enrichment";
 import type { SpatialResult } from "../ml/spatialResult";
 
 const stat = (gene: string, auc: number): GeneStat =>
-  ({ gene, auc, meanIn: 0, meanOut: 0, diff: 0, p: 0, q: 0 });
+  ({ gene, auc, mean: 1, meanIn: 0, meanOut: 0, diff: 0, p: 0, q: 0 });
 
 describe("turning an enrichment into a module", () => {
   it("keeps both directions, signed", () => {
@@ -162,5 +163,49 @@ describe("choosing a threshold", () => {
     const b = new Float32Array([10, 20, 30, 40, 1000]);
     const keep = (v: Float32Array) => v.filter((x) => x > percentileThreshold(v, 75)).length;
     expect(keep(a)).toBe(keep(b));
+  });
+});
+
+describe("turning a gradient into a field", () => {
+  const g = (name: string, rho: number): GradientStat =>
+    ({ name, rho, mean: 1, meanStart: 0, meanEnd: 0, p: 0, q: 0 });
+
+  it("carries rho as the weight, sign and all", () => {
+    const m = moduleFromGradient("Axis", [g("RISES", 0.9), g("FALLS", -0.85), g("FLAT", 0.01)]);
+    const by = Object.fromEntries(m.genes.map((x) => [x.gene, x.weight]));
+    expect(by.RISES).toBeCloseTo(0.9, 4);
+    // A gradient is the pairing of what rises with what falls; dropping the
+    // fallers would throw away half the measurement.
+    expect(by.FALLS).toBeCloseTo(-0.85, 4);
+    expect(by.FLAT).toBeUndefined();
+  });
+
+  it("scores as a field that increases along the axis it came from", () => {
+    // Six patches left to right: one gene rising, one falling.
+    const genes = ["UP", "DOWN"];
+    const n = 6;
+    const values = new Float32Array(n * 2);
+    for (let i = 0; i < n; i++) {
+      values[i * 2] = i;         // rises
+      values[i * 2 + 1] = n - i; // falls
+    }
+    const result = {
+      slide: "s.svs", genes, values, side: 100,
+      patches: Array.from({ length: n }, (_, i) => ({ x: i * 100, y: 0, index: i, col: i, row: 0, size: 100 })),
+      modelId: "t", modelName: "t", roiId: null, ms: 0, createdAt: "",
+    } as unknown as SpatialResult;
+
+    const m = moduleFromGradient("Axis", [g("UP", 0.95), g("DOWN", -0.95)]);
+    const score = scoreSignature(result, m)!;
+    // Monotonic along the same direction the gradient was measured in — which
+    // is the whole point of drawing it.
+    for (let i = 1; i < n; i++) expect(score[i]).toBeGreaterThan(score[i - 1]);
+  });
+
+  it("flips when the arrow that produced it was reversed", () => {
+    const forward = moduleFromGradient("A", [g("UP", 0.9), g("DOWN", -0.9)]);
+    const reversed = moduleFromGradient("A", [g("UP", -0.9), g("DOWN", 0.9)]);
+    const w = (m: typeof forward, gene: string) => m.genes.find((x) => x.gene === gene)!.weight;
+    expect(w(reversed, "UP")).toBeCloseTo(-w(forward, "UP"), 6);
   });
 });

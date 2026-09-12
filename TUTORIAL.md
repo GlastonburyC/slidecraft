@@ -14,6 +14,7 @@ Each section stands on its own, so jump to what you need:
 [the prediction loop](#predict) · [virtual spatial transcriptomics](#spatial) ·
 [modules](#modules) · [region enrichment](#enrichment) ·
 [find the others like it](#similar) · [gradients along an axis](#gradients) ·
+[the expression floor](#expression-floor) ·
 [running on a cluster](#cluster) ·
 [export to scanpy](#anndata)
 
@@ -573,6 +574,29 @@ Ranking is by the size of the correlation regardless of direction, so a gene
 that falls ranks alongside one that rises — direction is in the sign, not the
 position. Ranking a whole transcriptome takes a few seconds and says so while it
 works.
+
+**Plot it as a module** turns the ranking into a field. Each gene is weighted by
+its own rho, so the score is high where the risers are high and the fallers are
+low — which is the gradient itself, drawn. It covers the whole slide rather than
+just the corridor, so you can see whether the same trend holds away from the
+arrow you drew.
+
+### Genes the model does not really express {#expression-floor}
+
+Both gene analyses rank by a scale-free statistic. That is the point of a rank
+test and also its trap: a gene the model predicts at 0.001 everywhere can
+separate a region perfectly, or track an axis almost exactly, on the ordering of
+noise alone — and it will outrank COL1A1.
+
+So **Min. expression** drops genes whose mean across the slide is below a floor,
+before anything is corrected. On a whole transcriptome roughly half the genes
+sit below the 0.05 default, while the markers that matter are well clear of it:
+COL1A1 2.3, EPCAM 0.69, CD3D 0.096. The ones known to be unreliable here are not
+— AQP8 0.007, PYY 0.004, which is the [oncology training set](#spatial) showing
+through.
+
+Filtering happens before Benjamini-Hochberg, so the correction covers the genes
+actually reported rather than thousands that were never going to be.
 
 > The q-values here are weaker even than the region test's. Patches along one
 > axis are immediate neighbours, so they are about as far from independent as

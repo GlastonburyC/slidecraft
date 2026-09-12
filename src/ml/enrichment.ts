@@ -29,6 +29,8 @@ import type { Signature } from "./signatures";
 export interface GeneStat {
   /** The gene, or the cell type, depending on what was compared. */
   gene: string;
+  /** Mean across every patch, for deciding whether it is expressed at all. */
+  mean: number;
   meanIn: number;
   meanOut: number;
   /** Difference of means, in the model's own units. */
@@ -215,6 +217,27 @@ function compare(
   return { meanIn: sumIn / nIn, meanOut: sumOut / nOut, auc, p };
 }
 
+/**
+ * Drop genes the model does not really express before correcting anything.
+ *
+ * A rank test is scale-free, which is its virtue and here its trap: a gene
+ * predicted at 0.001 everywhere can separate a region perfectly on nothing but
+ * the ordering of noise, and it will outrank COL1A1. Filtering on the mean is
+ * the cheapest honest guard — the value is already computed on the way past.
+ *
+ * Applied BEFORE Benjamini-Hochberg, because correcting for tests whose results
+ * are never shown only inflates the q-values of the ones that are.
+ */
+function expressed(stats: GeneStat[], ps: number[], minMean: number) {
+  if (minMean <= 0) return { stats, ps };
+  const keep: GeneStat[] = [];
+  const keptPs: number[] = [];
+  for (let i = 0; i < stats.length; i++) {
+    if (stats[i].mean >= minMean) { keep.push(stats[i]); keptPs.push(ps[i]); }
+  }
+  return { stats: keep, ps: keptPs };
+}
+
 /** Shared by both entry points: the region has to be big enough to test. */
 function checkSize(nIn: number, nOut: number, minPatches: number): void {
   if (nIn < minPatches || nOut < minPatches) {
@@ -306,6 +329,8 @@ export function differentialExpression(
   result: SpatialResult,
   inside: Set<number>,
   minPatches = 5,
+  /** Genes whose mean across the slide is below this are not reported. */
+  minExpression = 0,
 ): EnrichmentResult {
   const n = result.patches.length;
   const nIn = inside.size;
@@ -366,21 +391,27 @@ export function differentialExpression(
       const p = varU > 0 ? Math.min(1, 2 * normalSf(Math.abs(z))) : 1;
       const meanIn = sumIn / nIn;
       const meanOut = sumOut / nOut;
-      stats.push({ gene: result.genes[g], meanIn, meanOut, diff: meanIn - meanOut, auc, p, q: 1 });
+      stats.push({
+        gene: result.genes[g], mean: (sumIn + sumOut) / n,
+        meanIn, meanOut, diff: meanIn - meanOut, auc, p, q: 1,
+      });
       ps.push(p);
     }
-    return finish(stats, ps, nIn, nOut, "gene");
+    const kept = expressed(stats, ps, minExpression);
+    return finish(kept.stats, kept.ps, nIn, nOut, "gene");
   }
 
   const values = new Float32Array(n);
   for (let g = 0; g < stride; g++) {
     for (let i = 0; i < n; i++) values[i] = valueAt(result, i * stride + g);
     const { meanIn, meanOut, auc, p } = compare(values, mask, nIn, nOut, small, large);
-    stats.push({ gene: result.genes[g], meanIn, meanOut, diff: meanIn - meanOut, auc, p, q: 1 });
+    const mean = (meanIn * nIn + meanOut * nOut) / n;
+    stats.push({ gene: result.genes[g], mean, meanIn, meanOut, diff: meanIn - meanOut, auc, p, q: 1 });
     ps.push(p);
   }
 
-  return finish(stats, ps, nIn, nOut, "gene");
+  const kept = expressed(stats, ps, minExpression);
+  return finish(kept.stats, kept.ps, nIn, nOut, "gene");
 }
 
 /**
@@ -427,7 +458,11 @@ export function differentialSignatures(
     const values = score(result, signature);
     if (!values || values.length !== n) continue;
     const { meanIn, meanOut, auc, p } = compare(values, mask, nIn, nOut, small, large);
-    stats.push({ gene: signature.name, meanIn, meanOut, diff: meanIn - meanOut, auc, p, q: 1 });
+    // A module is not a gene and has no expression floor to clear.
+    stats.push({
+      gene: signature.name, mean: Number.POSITIVE_INFINITY,
+      meanIn, meanOut, diff: meanIn - meanOut, auc, p, q: 1,
+    });
     ps.push(p);
   }
 

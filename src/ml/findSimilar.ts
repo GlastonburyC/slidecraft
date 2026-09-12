@@ -1,6 +1,7 @@
 import { traceMask } from "./contour";
 import type { Ring } from "../annotate/types";
 import type { GeneStat } from "./enrichment";
+import type { GradientStat } from "./gradient";
 import type { Signature } from "./signatures";
 import type { SpatialResult } from "./spatialResult";
 
@@ -52,6 +53,35 @@ export function moduleFromEnrichment(
     .sort((a, b) => Math.abs(b.auc - 0.5) - Math.abs(a.auc - 0.5))
     .slice(0, top)
     .map((s) => ({ gene: s.gene, weight: weightOf(s) }));
+  return { name, genes };
+}
+
+/**
+ * Turn a gradient into a module, so it can be drawn rather than read.
+ *
+ * The ranking along an axis is a list; a module made from it is a field. Each
+ * gene carries its own rho as its weight, which is what makes the result mean
+ * something: scoreSignature standardises every gene and then takes the
+ * weighted average, so genes that rise toward the arrowhead push the score up
+ * and genes that fall push it down. The map then shows the gradient the axis
+ * measured, extended over the whole slide — including the parts the corridor
+ * never covered, which is how you find out whether it holds there too.
+ *
+ * Both directions again, and for a stronger reason than in a region: a gradient
+ * IS the pairing of what rises with what falls. Keeping only the risers would
+ * throw away half the measurement.
+ */
+export function moduleFromGradient(
+  name: string,
+  stats: GradientStat[],
+  opts: { top?: number; minRho?: number } = {},
+): Signature {
+  const { top = 40, minRho = 0.2 } = opts;
+  const genes = [...stats]
+    .filter((s) => Math.abs(s.rho) >= minRho)
+    .sort((a, b) => Math.abs(b.rho) - Math.abs(a.rho))
+    .slice(0, top)
+    .map((s) => ({ gene: s.name, weight: Math.round(s.rho * 1e4) / 1e4 }));
   return { name, genes };
 }
 

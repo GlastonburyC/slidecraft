@@ -17,7 +17,7 @@ import {
 } from "../ml/gradient";
 import { matrixBytes, toAnnDataZip } from "../io/anndata";
 import {
-  latticeOf, moduleFromEnrichment, percentileThreshold, similarRegions,
+  latticeOf, moduleFromEnrichment, moduleFromGradient, percentileThreshold, similarRegions,
 } from "../ml/findSimilar";
 import { useSpatial } from "../ml/spatialStore";
 import type { SlideMeta } from "../slide/types";
@@ -76,6 +76,16 @@ export function SpatialPanel({
    * a figure in microns hides it.
    */
   const [corridor, setCorridor] = useState(3);
+  /**
+   * Floor on a gene's mean, below which it is not reported.
+   *
+   * Both analyses rank by a scale-free statistic, so a gene the model predicts
+   * at 0.001 everywhere can top either one on the ordering of noise. On a whole
+   * transcriptome roughly half the genes sit below 0.05, and the markers that
+   * matter — COL1A1 at 2.3, EPCAM at 0.69, CD3D at 0.096 — are well clear of
+   * it, while the ones known to be dead here (AQP8 0.007, PYY 0.004) are not.
+   */
+  const [minExpression, setMinExpression] = useState(0.05);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const picked = useMemo(() => pickRoi(items, selection), [version, selection, items]);
@@ -137,7 +147,7 @@ export function SpatialPanel({
           setEnrichment(
             kind === "signature"
               ? differentialSignatures(result, inside, signatures.signatures, scoreSignature)
-              : differentialExpression(result, inside),
+              : differentialExpression(result, inside, 5, minExpression),
           );
           setRegionName(selectedName || "selection");
         } catch (err) {
@@ -183,7 +193,7 @@ export function SpatialPanel({
             kind === "signature"
               ? signatureGradient(
                   result, axis, width, meta.mppX, signatures.signatures, scoreSignature)
-              : geneGradient(result, axis, width, meta.mppX),
+              : geneGradient(result, axis, width, meta.mppX, minExpression),
           );
         } catch (err) {
           setGradient(null);
@@ -212,6 +222,21 @@ export function SpatialPanel({
    * fits — no model trained, nothing labelled, and the answer is a field you
    * can look at before deciding whether it is worth pursuing.
    */
+  /**
+   * Draw the gradient instead of reading it.
+   *
+   * Each gene weighted by its own rho, so the module scores high where the
+   * genes that rise toward the arrowhead are high and the ones that fall are
+   * low — which is the gradient itself, as a field. Over the whole slide, not
+   * just the corridor, so you can see whether the same trend holds away from
+   * where it was measured.
+   */
+  const saveGradientAsModule = () => {
+    if (!gradient || gradient.kind !== "gene") return;
+    addSignature(moduleFromGradient("Along the axis", gradient.items));
+    setFound(null);
+  };
+
   const saveAsModule = () => {
     if (!enrichment) return;
     /*
@@ -673,6 +698,44 @@ export function SpatialPanel({
           </label>
 
           {/*
+            * One floor, two analyses.
+            *
+            * Both rank by a scale-free statistic, so both are vulnerable to the
+            * same thing: a gene that is not expressed anywhere separating
+            * perfectly on noise. The control sits with the map rather than
+            * inside either analysis because it describes the map.
+            */}
+          <label className="field">
+            <span>Min. expression</span>
+            <select
+              value={minExpression}
+              onChange={(e) => setMinExpression(Number(e.target.value))}
+            >
+              <option value={0}>no floor — every gene</option>
+              <option value={0.01}>0.01 — barely detected</option>
+              <option value={0.02}>0.02</option>
+              <option value={0.05}>0.05 — default</option>
+              <option value={0.1}>0.1</option>
+              <option value={0.25}>0.25 — well expressed only</option>
+            </select>
+          </label>
+          <div className="picker-hint">
+            {minExpression > 0 ? (
+              <>
+                Genes averaging below {minExpression} across this slide are left out of
+                both gene analyses. They rank as well as anything when the test is
+                rank-based, and mean nothing.
+              </>
+            ) : (
+              <>
+                Every gene is reported, including ones the model predicts at
+                effectively zero — which will rank as highly as real markers,
+                because the test compares orderings rather than amounts.
+              </>
+            )}
+          </div>
+
+          {/*
             * Turn whatever is on screen into objects.
             *
             * Placed with the field rather than with the enrichment, because it
@@ -884,6 +947,36 @@ export function SpatialPanel({
                 caveat as the region test and then some — patches along one axis are neighbours,
                 so they are about as far from independent as patches get.
               </div>
+              <div className="row-actions">
+                <button
+                  className="btn"
+                  disabled={gradient.kind !== "gene"}
+                  title={
+                    gradient.kind === "gene"
+                      ? "Weight each gene by its rho and colour the slide by the result"
+                      : "A module is a set of genes. Ask “Which genes?” along this axis instead."
+                  }
+                  onClick={saveGradientAsModule}
+                >
+                  Plot it as a module
+                </button>
+              </div>
+              <div className="picker-hint">
+                {gradient.kind === "gene" ? (
+                  <>
+                    Each gene weighted by its own rho, so the map shows the gradient itself —
+                    high where the risers are high and the fallers are low. Drawn over the whole
+                    slide, not just the corridor, so you can see whether it holds away from the
+                    arrow.
+                  </>
+                ) : (
+                  <>
+                    A module is a set of <i>genes</i>, and this ranks cell types. Ask
+                    <b> Which genes?</b> along the same axis and plot that.
+                  </>
+                )}
+              </div>
+
               <div className="row-actions">
                 <button
                   className="btn"

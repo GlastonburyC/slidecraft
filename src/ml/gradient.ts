@@ -29,6 +29,8 @@ export interface AxisPatch {
 export interface GradientStat {
   /** The gene, or the cell type. */
   name: string;
+  /** Mean along the axis, for deciding whether it is expressed at all. */
+  mean: number;
   /** Spearman's rho against position along the axis. Positive rises. */
   rho: number;
   /** Mean in the first third of the axis, and in the last. */
@@ -162,6 +164,7 @@ function assemble(
   kind: "gene" | "signature",
   lengthPx: number,
   lengthUm: number | null,
+  minMean = 0,
 ): GradientResult {
   const n = along.length;
   const tRanks = ranksOf(along.map((a) => a.t));
@@ -194,16 +197,34 @@ function assemble(
     // overwritten by the next one.
     const mean = (set: AxisPatch[]) =>
       set.reduce((s, a) => s + col[pos.get(a.index)!], 0) / set.length;
-    items.push({ name: names[c], rho, meanStart: mean(startIdx), meanEnd: mean(endIdx), p, q: 1 });
+    let total = 0;
+    for (let i = 0; i < n; i++) total += col[i];
+    items.push({
+      name: names[c], mean: total / n, rho,
+      meanStart: mean(startIdx), meanEnd: mean(endIdx), p, q: 1,
+    });
     ps.push(p);
   }
 
-  const qs = benjaminiHochberg(ps);
-  items.forEach((s, i) => { s.q = qs[i]; });
+  /*
+   * Genes the model barely expresses are dropped before anything is corrected.
+   *
+   * Spearman is scale-free, so a gene predicted at 0.001 the whole way along an
+   * axis can score a near-perfect rho on the ordering of noise alone and sit
+   * above every real marker. Filtering before Benjamini-Hochberg also keeps the
+   * correction over the tests actually reported.
+   */
+  const kept = minMean > 0 ? items.filter((s) => s.mean >= minMean) : items;
+  const keptPs = minMean > 0
+    ? ps.filter((_, i) => items[i].mean >= minMean)
+    : ps;
+
+  const qs = benjaminiHochberg(keptPs);
+  kept.forEach((s, i) => { s.q = qs[i]; });
   // Steepest first, in both directions — a gene that falls along the axis is
   // as much of a finding as one that rises.
-  items.sort((a, b) => Math.abs(b.rho) - Math.abs(a.rho));
-  return { items, used: n, lengthPx, lengthUm, kind };
+  kept.sort((a, b) => Math.abs(b.rho) - Math.abs(a.rho));
+  return { items: kept, used: n, lengthPx, lengthUm, kind };
 }
 
 function axisLength(axis: Annotation): number {
@@ -231,6 +252,8 @@ export function geneGradient(
   axis: Annotation,
   width: number,
   mppX: number | null,
+  /** Genes whose mean along the axis is below this are not reported. */
+  minExpression = 0,
 ): GradientResult {
   const along = patchesAlong(result, axis, width);
   check(along);
@@ -244,7 +267,8 @@ export function geneGradient(
     return buffer;
   };
   const len = axisLength(axis);
-  return assemble(result.genes, column, along, "gene", len, mppX ? len * mppX : null);
+  return assemble(result.genes, column, along, "gene", len,
+                  mppX ? len * mppX : null, minExpression);
 }
 
 /** Which cell types change along the axis. */

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { differentialExpression } from "../ml/enrichment";
+import { differentialExpression, differentialSignatures } from "../ml/enrichment";
+import { scoreSignature } from "../ml/signatures";
 import type { SpatialResult } from "../ml/spatialResult";
 
 /**
@@ -183,5 +184,74 @@ describe("negative zero", () => {
     const inside = new Set([0, 1, 2, 3, 4]);
     const out = differentialExpression(halfMapOf(col.map((v) => [v])), inside).genes[0];
     expect(out.auc).toBe(0.5);
+  });
+});
+
+describe("filtering genes the model barely expresses", () => {
+  /**
+   * A rank test is scale-free, which is the trap. A gene sitting at 0.001 the
+   * whole way across can separate a region perfectly on the ordering of noise
+   * and outrank a real marker, so the floor is on the VALUE, not the statistic.
+   */
+  function twoGenes(): SpatialResult {
+    const n = 20;
+    const rows: number[][] = [];
+    for (let i = 0; i < n; i++) {
+      // REAL separates and is expressed; GHOST separates just as cleanly and is
+      // three orders of magnitude smaller.
+      rows.push([i < 10 ? 2.0 : 0.5, i < 10 ? 0.002 : 0.0005]);
+    }
+    return mapOf(rows);
+  }
+  const genesOf = (r: { genes: { gene: string }[] }) => r.genes.map((g) => g.gene);
+  const inside = new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+
+  it("reports both when there is no floor", () => {
+    const out = differentialExpression(twoGenes(), inside, 5, 0);
+    expect(genesOf(out).sort()).toEqual(["G0", "G1"]);
+    // Both separate perfectly, which is exactly why the floor is needed.
+    expect(out.genes.every((g) => g.auc === 1)).toBe(true);
+  });
+
+  it("drops the unexpressed one once a floor is set", () => {
+    const out = differentialExpression(twoGenes(), inside, 5, 0.05);
+    expect(genesOf(out)).toEqual(["G0"]);
+  });
+
+  it("records each gene's mean, which is what the floor reads", () => {
+    const out = differentialExpression(twoGenes(), inside, 5, 0);
+    const by = Object.fromEntries(out.genes.map((g) => [g.gene, g.mean]));
+    expect(by.G0).toBeCloseTo(1.25, 5);
+    expect(by.G1).toBeCloseTo(0.00125, 6);
+  });
+
+  it("corrects q over the genes it reports, not the ones it dropped", () => {
+    /*
+     * Forty unexpressed decoys that separate nothing, alongside one real gene.
+     * Benjamini-Hochberg scales the top p-value by the number of tests, so
+     * leaving the decoys in multiplies the real gene's q by forty-one for no
+     * reason — nothing about them was ever going to be reported.
+     */
+    const n = 20;
+    const rng = (() => { let z = 5; return () => (z = (z * 1103515245 + 12345) % 2147483648) / 2147483648; })();
+    const rows = Array.from({ length: n }, (_, i) =>
+      [i < 10 ? 2.0 : 0.5, ...Array.from({ length: 40 }, () => 0.0005 + rng() * 0.001)]);
+    const result = mapOf(rows);
+
+    const withFloor = differentialExpression(result, inside, 5, 0.05);
+    const without = differentialExpression(result, inside, 5, 0);
+    expect(withFloor.genes).toHaveLength(1);
+    expect(without.genes).toHaveLength(41);
+
+    const real = (r: typeof withFloor) => r.genes.find((g) => g.gene === "G0")!.q;
+    expect(real(withFloor)).toBeLessThan(real(without));
+    // And by the factor the correction actually applies.
+    expect(real(without) / real(withFloor)).toBeCloseTo(41, 0);
+  });
+
+  it("never filters cell types, which have no expression of their own", () => {
+    const sig = [{ name: "Module", genes: [{ gene: "G0", weight: 1 }] }];
+    const out = differentialSignatures(twoGenes(), inside, sig, scoreSignature);
+    expect(out.genes.map((g) => g.gene)).toEqual(["Module"]);
   });
 });
