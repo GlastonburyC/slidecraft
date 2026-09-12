@@ -143,8 +143,8 @@ where a browser tab manages about 1.2. Two things in that file are waste, and
 one command removes both:
 
 ```bash
-python scripts/subset_expression.py "slide.expression.bin" \
-    --out "slide.browse.bin" --min-expression 0.05 --top 3000
+python scripts/subset_expression.py "slide.all.bin" \
+    --out "slide.expression.bin" --min-expression 0.05 --top 3000
 ```
 
 Most of the genes are not transcribed in the tissue — the decoder answers for

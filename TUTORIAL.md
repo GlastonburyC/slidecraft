@@ -413,9 +413,16 @@ down before it can be opened.
 ### Cutting a big map down to something that opens {#subset}
 
 ```bash
-python scripts/subset_expression.py "slide.expression.bin" \
-    --out "slide.browse.bin" --min-expression 0.05 --top 3000
+python scripts/subset_expression.py "slide.all.bin" \
+    --out "slide.expression.bin" --min-expression 0.05 --top 3000
 ```
+
+The output is named `<slide>.expression.bin` because that is the name Slidecraft
+looks for beside a slide — the map you browse is the one that carries the
+slide's name. Give the full-transcriptome original something else (`--all` runs
+here write `slide.all.bin`) and keep it wherever analysis happens; it is not a
+file a browser can open, so it should not be the one sitting next to the slide
+claiming to be.
 
 Two separate kinds of waste come out of that, and they are worth separating
 because only one of them is lossy.

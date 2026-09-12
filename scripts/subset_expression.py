@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import re
 import struct
 import sys
 
@@ -214,6 +215,18 @@ def main() -> int:
 
     out_header = dict(header)
     out_header["genes"] = kept_genes
+    """
+    The model string carries its own gene count, and it has to follow.
+
+    Slidecraft shows it verbatim, so a subset that kept the original text says
+    "(19,338 genes)" over a list of 3,000 — the file describing itself wrongly
+    in the one place a reader would look to check.
+    """
+    out_header["model"] = re.sub(
+        r"\(\s*[\d,]+\s+genes?\s*\)",
+        f"({len(keep):,} genes)",
+        str(header.get("model", "")),
+    )
     out_header["dtype"] = args.dtype
     if quantise:
         # float() so json writes numbers, not numpy repr.
@@ -256,6 +269,14 @@ def main() -> int:
         print(" " * 40, end="\r")
     before = source.stat().st_size
     after = out.stat().st_size
+
+    def size(n: int) -> str:
+        """Bytes in a unit that shows them — "0.00 GB" tells the reader nothing."""
+        for unit, scale_ in (("GB", 1e9), ("MB", 1e6), ("kB", 1e3)):
+            if n >= scale_:
+                return f"{n / scale_:.2f} {unit}"
+        return f"{n} B"
+
     if args.genes:
         print(f"Kept {len(keep):,} of {cols:,} genes, as listed")
     else:
@@ -272,7 +293,7 @@ def main() -> int:
             print(f"Kept all {len(keep):,}")
     print(
         f"Wrote {out.name} — {rows:,} patches x {len(keep):,} genes, {args.dtype}, "
-        f"{after / 1e9:.2f} GB (was {before / 1e9:.2f} GB, {before / max(after, 1):.1f}x smaller)"
+        f"{size(after)} (was {size(before)}, {before / max(after, 1):.1f}x smaller)"
     )
     if quantise:
         print(
