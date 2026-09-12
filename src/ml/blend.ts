@@ -101,3 +101,31 @@ export function blendPredictions(
 
   return { probs: out, cols, rows, originX: minX, originY: minY, cell, classes };
 }
+
+/**
+ * Blend one scalar field, which is the same operation with a single class.
+ *
+ * Used when an expression map was computed with a stride finer than its patch
+ * size. Without it the overlay draws every patch at full width and they
+ * overdraw each other, so a strided run costs many times the compute and looks
+ * no finer — worse, in fact, since whichever patch happens to be drawn last
+ * wins outright rather than being averaged with its neighbours.
+ *
+ * A second channel rides along for the tissue mask, so a cell can be left blank
+ * when the patches reaching it were off tissue.
+ */
+export function blendField(
+  patches: Patch[],
+  values: Float32Array,
+  mask: Uint8Array | null,
+  side: number,
+  cell: number,
+): Blend | null {
+  const n = patches.length;
+  const pairs = new Float32Array(n * 2);
+  for (let i = 0; i < n; i++) {
+    pairs[i * 2] = values[i];
+    pairs[i * 2 + 1] = mask ? mask[i] : 1;
+  }
+  return blendPredictions(patches, pairs, 2, side, cell);
+}

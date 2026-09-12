@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import {
-  filesFromDataTransfer, filesFromInput, isExpressionFile, resolveSlides,
+  expressionMatchesSlide, filesFromDataTransfer, filesFromInput, isExpressionFile, resolveSlides,
 } from "../slide/dropResolver";
 import { closeSlide, getWorkerCount, openSlide, type OpenProgress } from "../slide/openslideSource";
 import type { ResolvedSlide, SlideSource } from "../slide/types";
@@ -283,19 +283,33 @@ export function App() {
           const maps = files.filter((f) => isExpressionFile(f.path));
           const rest = files.filter((f) => !isGeoJSONFile(f.path) && !isExpressionFile(f.path));
 
-          // Slides first: a map dropped alongside one needs it open to attach.
+          const open = sourceRef.current;
+          // Slides first: a map dropped alongside a NEW one is paired by the
+          // resolver when that slide opens.
           if (rest.length > 0) ingest(resolveSlides([...rest, ...maps]));
           for (const g of geo) await importGeoJSONFile(g.file);
 
-          // Only the loose ones. A map dropped with its slide is paired by the
-          // resolver already, and attaching it twice would say so twice.
-          if (rest.length === 0) {
-            const open = sourceRef.current;
-            for (const m of maps) {
-              if (!open) {
+          /*
+           * A map for the slide already on screen is attached here and nowhere
+           * else.
+           *
+           * Re-dropping a slide that is already in the list is a no-op — it is
+           * deduplicated by path — so the effect that reads sidecars never runs
+           * again, and a map arriving with it would be silently ignored. That
+           * is what made a cleared map impossible to bring back by dropping the
+           * folder again.
+           *
+           * Dropped on its own it is meant for whatever is open, and
+           * attachExpression refuses it if the header names another slide.
+           */
+          for (const m of maps) {
+            if (!open) {
+              if (rest.length === 0) {
                 setError(`Open the slide first, then drop ${m.file.name} onto it.`);
-                break;
               }
+              continue;
+            }
+            if (rest.length === 0 || expressionMatchesSlide(m.file.name, open.meta.name)) {
               await attachExpression(m.file, open.meta.name);
             }
           }

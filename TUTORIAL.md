@@ -346,9 +346,12 @@ Three arguments are worth knowing:
   `apertus`. The default is `scgpt`, which is what the model card's own example
   uses. They are not interchangeable, so the choice is written into the file's
   header and into its `modelId`.
-- `--stride` overlaps the patches. Note that the expression overlay does not
-  blend overlapping patches yet, so a strided map currently overdraws rather
-  than resolving finer.
+- `--stride` overlaps the patches, and the overlay blends them. Each output
+  cell is the raised-cosine weighted average of every patch covering it — a
+  patch describes its middle better than its corners, so weighting by distance
+  from the centre sharpens boundaries instead of smearing them. Without that
+  the overlapping squares would simply overdraw and the finer run would cost
+  many times the compute for nothing.
 
 The tissue detection is the same algorithm the browser uses, ported line for
 line in `scripts/tissue.py`, so a patch chosen on a GPU node is a patch
@@ -393,7 +396,8 @@ All 19,338 genes over a 400 mm² resection — about 32,000 patches — is rough
 40 minutes on one V100 and 1.2 GB on disk. Gene count barely changes that: the
 vision backbone dominates and the gene decoder rides along, so `--all` costs
 little more than a 140-gene panel. Patch count is the axis that matters, which
-is why `--stride` gets expensive fast.
+is why `--stride` gets expensive fast: halving it quadruples the patches, and an
+eighth of the patch width is sixty-four times as many.
 
 Slidecraft loads a map that size in well under a second and switches gene in
 about 70 ms. The values stay in the half precision they arrived in and are

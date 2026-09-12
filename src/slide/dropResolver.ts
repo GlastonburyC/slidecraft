@@ -47,6 +47,21 @@ export function isExpressionFile(path: string): boolean {
   return EXPRESSION_SUFFIXES.some((x) => lower.endsWith(x));
 }
 
+/**
+ * Whether a map is named for a slide — `slide.svs` and `slide.expression.bin`.
+ *
+ * Compared on the name so it can be decided before the file is read, which is
+ * what lets a re-dropped map be recognised as belonging to the slide already
+ * open. The header is still checked afterwards; this only decides where to
+ * look, never whether to trust it.
+ */
+export function expressionMatchesSlide(mapName: string, slideName: string): boolean {
+  const lower = baseOf(mapName).toLowerCase();
+  const suffix = EXPRESSION_SUFFIXES.find((x) => lower.endsWith(x));
+  if (!suffix) return false;
+  return lower.slice(0, -suffix.length) === stemOf(baseOf(slideName)).toLowerCase();
+}
+
 const extOf = (p: string) => p.slice(p.lastIndexOf(".") + 1).toLowerCase();
 const baseOf = (p: string) => p.slice(p.lastIndexOf("/") + 1);
 const dirOf = (p: string) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");

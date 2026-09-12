@@ -6,6 +6,7 @@ import { handlesOf, boxOf, resizeTarget, type Handle } from "../annotate/resize"
 import { useAnnotations } from "../annotate/store";
 import { useMl } from "../ml/mlStore";
 import { colourFor, currentField, robustRange } from "../ml/spatialResult";
+import { blendField, type Blend } from "../ml/blend";
 import { scoreSignature } from "../ml/signatures";
 import { useSpatial } from "../ml/spatialStore";
 import { usePredict } from "../ml/predictStore";
@@ -41,6 +42,38 @@ interface PolyEntry {
  * pointer positions to slide coordinates, so there is exactly one source of
  * truth for the camera.
  */
+
+/**
+ * The spacing a map's patches were laid on, which is the stride rather than the
+ * patch width. The smallest gap between distinct coordinates, because an
+ * overlapping run has many patches sharing a row.
+ */
+function strideOf(patches: { x: number; y: number }[], fallback: number): number {
+  const seen = (key: "x" | "y") => {
+    const v = [...new Set(patches.map((p) => p[key]))].sort((a, b) => a - b);
+    let g = Infinity;
+    for (let i = 1; i < v.length; i++) g = Math.min(g, v[i] - v[i - 1]);
+    return g;
+  };
+  const g = Math.min(seen("x"), seen("y"));
+  return Number.isFinite(g) && g > 0 ? g : fallback;
+}
+
+/**
+ * One blend kept between renders.
+ *
+ * Blending a whole-slide map is a pass over every patch times the cells it
+ * covers, and the overlay rebuilds its layers whenever anything in the document
+ * changes — a pan, a selection, a new annotation. Recomputing it each time
+ * would make the map the slowest thing on screen.
+ */
+let cached: { key: string; value: Blend | null } | null = null;
+function blendCache(a: string, b: string, c: string, make: () => Blend | null): Blend | null {
+  const key = `${a}|${b}|${c}`;
+  if (!cached || cached.key !== key) cached = { key, value: make() };
+  return cached.value;
+}
+
 export class AnnotationOverlay {
   private deck: Deck<OrthographicView>;
   private draft: Draft | null = null;
@@ -377,34 +410,86 @@ export class AnnotationOverlay {
         const patches = spatial.result.patches;
         const mask = spatial.onTissueOnly ? spatial.tissueMask : null;
         const maskKey = mask ? `t${spatial.tissueMaskVersion}` : "off";
-        layers.push(
-          new PolygonLayer<{ i: number }>({
-            id: `spatial-${spatial.result.createdAt}-${field.label}`,
-            data: patches.map((_, i) => ({ i })),
-            getPolygon: (d) => {
-              const p = patches[d.i];
-              return [[
-                [p.x, p.y],
-                [p.x + side, p.y],
-                [p.x + side, p.y + side],
-                [p.x, p.y + side],
-              ]];
-            },
-            getFillColor: (d) => {
-              // A patch off the tissue is drawn fully transparent rather than
-              // dropped from the data, so toggling the mask is a colour change
-              // and not a rebuild of every polygon.
-              if (mask && !mask[d.i]) return [0, 0, 0, 0];
-              const [r, g, b] = colourFor(values[d.i], range);
-              return [r, g, b, alpha];
-            },
-            filled: true,
-            stroked: false,
-            updateTriggers: {
-              getFillColor: `${field.label}|${spatial.opacity}|${maskKey}`,
-            },
-          }),
-        );
+
+        /*
+         * A strided map is blended; an unstrided one is drawn as it is.
+         *
+         * When the stride is finer than the patch, every patch still covers a
+         * full patch-width and they overlap. Drawn as squares they overdraw,
+         * and whichever happens to be last wins outright — so the finer run
+         * costs many times the compute and looks no better. Blending them with
+         * a raised cosine is what converts that overlap into resolution: each
+         * output cell is the weighted average of every patch covering it,
+         * weighted by how near its centre the cell sits.
+         */
+        const step = strideOf(patches, side);
+        const blended = step < side * 0.99
+          ? blendCache(spatial.result.createdAt, field.label, maskKey,
+                       () => blendField(patches, values, mask, side, step))
+          : null;
+
+        if (blended) {
+          const { cols, rows, originX, originY, cell } = blended;
+          const cells: { i: number }[] = [];
+          for (let i = 0; i < cols * rows; i++) cells.push({ i });
+          const at = (i: number) => blended.probs[i * 2];
+          const covered = (i: number) => blended.probs[i * 2 + 1];
+          const cellRange = robustRange(
+            Float32Array.from({ length: cols * rows }, (_, i) => at(i)),
+          );
+          layers.push(
+            new PolygonLayer<{ i: number }>({
+              id: `spatial-${spatial.result.createdAt}-${field.label}-blend`,
+              data: cells,
+              getPolygon: (d) => {
+                const x = originX + (d.i % cols) * cell;
+                const y = originY + Math.floor(d.i / cols) * cell;
+                return [[[x, y], [x + cell, y], [x + cell, y + cell], [x, y + cell]]];
+              },
+              getFillColor: (d) => {
+                // Half is the midpoint of a blended mask: a cell most of whose
+                // weight came from off-tissue patches is left blank.
+                if (covered(d.i) < 0.5) return [0, 0, 0, 0];
+                const [r, g, b] = colourFor(at(d.i), cellRange);
+                return [r, g, b, alpha];
+              },
+              filled: true,
+              stroked: false,
+              updateTriggers: {
+                getFillColor: `${field.label}|${spatial.opacity}|${maskKey}`,
+              },
+            }),
+          );
+        } else {
+          layers.push(
+            new PolygonLayer<{ i: number }>({
+              id: `spatial-${spatial.result.createdAt}-${field.label}`,
+              data: patches.map((_, i) => ({ i })),
+              getPolygon: (d) => {
+                const p = patches[d.i];
+                return [[
+                  [p.x, p.y],
+                  [p.x + side, p.y],
+                  [p.x + side, p.y + side],
+                  [p.x, p.y + side],
+                ]];
+              },
+              getFillColor: (d) => {
+                // A patch off the tissue is drawn fully transparent rather than
+                // dropped from the data, so toggling the mask is a colour change
+                // and not a rebuild of every polygon.
+                if (mask && !mask[d.i]) return [0, 0, 0, 0];
+                const [r, g, b] = colourFor(values[d.i], range);
+                return [r, g, b, alpha];
+              },
+              filled: true,
+              stroked: false,
+              updateTriggers: {
+                getFillColor: `${field.label}|${spatial.opacity}|${maskKey}`,
+              },
+            }),
+          );
+        }
       }
     }
 
