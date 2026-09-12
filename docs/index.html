@@ -202,6 +202,7 @@
     <h1>Slidecraft</h1>
     <nav>
       <a href="#how">How it works</a>
+      <a href="#asking">Ask it</a>
       <a href="#tutorials">Tutorials</a>
       <a href="https://github.com/GlastonburyC/slidecraft">GitHub</a>
     </nav>
@@ -365,6 +366,53 @@
         inverse of the goblet map: dark through the mucosa, bright in the wall.
         Neither picture is a measurement. Predicted expression is a hypothesis
         from morphology, to check against an assay.
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="asking">
+  <div class="wrap">
+    <h3>Ask the map a question</h3>
+    <p>
+      A map you can only look at is a picture. Two questions turn it into a
+      result, and both are asked by drawing rather than by typing.
+    </p>
+
+    <h4 style="margin-top:26px">What is in this region?</h4>
+    <p>
+      Draw round an area and rank the cell types over-represented in it against
+      the rest of the slide — or the genes, if that is what you need.
+      &ldquo;CXCL13 is enriched here&rdquo; is only useful to someone who already
+      knows what CXCL13 means; &ldquo;this is a lymphoid aggregate&rdquo; is the
+      finding itself.
+    </p>
+    <figure class="shot">
+      <img src="shots/enrichment.jpg"
+           alt="A region drawn over colonic mucosa, with the cell types enriched in it ranked by AUC">
+      <figcaption>
+        414 patches inside against 2,522 outside. Epithelium 0.87, Goblet 0.85,
+        Colonocyte 0.84, Crypt 0.83 — mucosa described as mucosa, by a model
+        that was only ever shown the H&amp;E.
+      </figcaption>
+    </figure>
+
+    <h4 style="margin-top:32px">What changes along an axis?</h4>
+    <p>
+      Enrichment suits a thing with a boundary. Much of mucosa has none —
+      expression varies <em>along</em> an axis, and splitting that into inside
+      and outside throws away the ordering that was the signal. So press
+      <kbd>A</kbd>, drag an arrow, and every gene or module is rank-correlated
+      against position along it. Positive rises toward the head; reverse the
+      arrow and every sign flips.
+    </p>
+    <figure class="shot">
+      <img src="shots/axis.jpg"
+           alt="An arrow drawn from mucosa to muscularis, with the cell types that change along it">
+      <figcaption>
+        281 patches along 6.18 mm, mucosa to wall. Goblet &minus;0.86,
+        Colonocyte &minus;0.84, Crypt &minus;0.84 and Epithelium &minus;0.83 all
+        falling, with myeloid and vascular rising the other way.
       </figcaption>
     </figure>
   </div>

@@ -160,6 +160,18 @@ holds none of it.
 > cytokines — can come back flat. Check the coverage counts before trusting a
 > module.
 
+## Ask the map a question
+
+Draw round an area and rank the cell types over-represented in it, not just the
+genes. "CXCL13 is enriched here" is only useful to someone who already knows
+what CXCL13 means; "this is a lymphoid aggregate" is the finding itself.
+
+<img src="docs/shots/enrichment.jpg" alt="A region drawn over colonic mucosa, with the cell types enriched in it ranked by AUC">
+
+414 patches inside against 2,522 outside: Epithelium 0.87, Goblet 0.85,
+Colonocyte 0.84, Crypt 0.83 — and Neutrophil depleted at 0.31. Mucosa described
+as mucosa, from the H&E alone.
+
 ## Along an axis
 
 Enrichment asks whether a region differs from the rest, which suits a thing
