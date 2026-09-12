@@ -160,8 +160,8 @@ average and 0.0009 at worst, and the two rankings correlating at ρ = 0.9988.
 Genes separated by less than that can still swap places — one of a top 25 did —
 so read the AUCs, not the row numbers, where they are close.
 
-That file opens in 72 ms, switches gene in 29 ms across 306,587 patches, and
-ranks all 3,000 genes over a drawn region in 4.1 s.
+That file opens in 37 ms, switches gene in 16 ms across 306,587 patches, and
+ranks all 3,000 genes over a drawn region in 3.1 s.
 
 Precision is a choice, not an assumption: `--dtype float16` subsets only, and
 either way the tool reports the error it introduced. Keep the full map for

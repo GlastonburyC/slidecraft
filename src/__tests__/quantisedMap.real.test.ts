@@ -4,7 +4,7 @@ import { parseExpressionFile } from "../io/expressionFile";
 import { geneValues } from "../ml/spatialResult";
 import { differentialExpression } from "../ml/enrichment";
 
-const PATH = "/Users/craig.glastonbury/EXETER/deepspot/TB_411 3A.browse.bin";
+const PATH = "/Users/craig.glastonbury/EXETER/ibd50/CUH/q4browse/TB_411 3A.expression.bin";
 const run = existsSync(PATH) ? describe : describe.skip;
 
 run("a real quantised whole-slide map", () => {

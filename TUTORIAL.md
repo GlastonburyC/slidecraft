@@ -475,9 +475,9 @@ Measured on the 0.93 GB map above:
 
 | | |
 |---|---|
-| Opening the file | 72 ms |
-| Switching gene, 306,587 patches | 29 ms |
-| Region enrichment, all 3,000 genes | 4.1 s |
+| Opening the file | 37 ms |
+| Switching gene, 306,587 patches | 16 ms |
+| Region enrichment, all 3,000 genes | 3.1 s |
 
 The last of those was 28 s before the genes were blocked, which is the whole
 reason the number is worth quoting: the saving is not the disk space.
