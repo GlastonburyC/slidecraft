@@ -14,7 +14,8 @@ Each section stands on its own, so jump to what you need:
 [the prediction loop](#predict) · [virtual spatial transcriptomics](#spatial) ·
 [modules](#modules) · [region enrichment](#enrichment) ·
 [find the others like it](#similar) · [gradients along an axis](#gradients) ·
-[the expression floor](#expression-floor) · [sharding across GPUs](#shards) ·
+[the expression floor](#expression-floor) ·
+[cutting a big map down](#subset) · [sharding across GPUs](#shards) ·
 [running on a cluster](#cluster) ·
 [export to scanpy](#anndata)
 
@@ -404,6 +405,82 @@ about 70 ms. The values stay in the half precision they arrived in and are
 decoded one gene at a time, because widening 620 million of them to fp32 up
 front is several gigabytes to show one gene.
 
+About 1.2 GB is where a tab gives out, and a quarter-stride whole-transcriptome
+run goes well past it — a 400 mm² resection at `--stride 56` is 306,587 patches
+by 19,338 genes, or 11.9 GB. That map is worth having; it just has to be cut
+down before it can be opened.
+
+### Cutting a big map down to something that opens {#subset}
+
+```bash
+python scripts/subset_expression.py "slide.expression.bin" \
+    --out "slide.browse.bin" --min-expression 0.05 --top 3000
+```
+
+Two separate kinds of waste come out of that, and they are worth separating
+because only one of them is lossy.
+
+**Most of the genes are not transcribed here.** The decoder answers for every
+gene in the reference whether or not the tissue uses it, so a colon map carries
+olfactory receptors and testis antigens at the same cost per value as COL1A1.
+On the run above, 8,432 of 19,338 genes sit below a slide-wide mean of 0.05 —
+and they are not merely uninteresting, they are noise being ranked against
+signal in every differential test. This is the same floor the enrichment and
+gradient panels apply, moved upstream to where it also saves the bytes.
+
+**fp16 is finer than the model is.** DeepSpot-M predicts log1p expression from
+a 224 px tile; its disagreement with held-out truth is a large fraction of the
+value. Eleven bits of mantissa records the decoder's arithmetic, not the
+biology. `subset_expression.py` stores one byte per value with a scale and zero
+*per gene*, so 255 steps span the range that gene actually occupies rather than
+a range set by whichever gene in the map was loudest. A gene that never goes
+negative decodes code 0 to exactly 0, so an absent gene stays absent instead of
+picking up a faint floor everywhere.
+
+`--top` then keeps the most spatially variable of the survivors, which is the
+selection that matters for browsing: a gene sitting flat at 2.0 across the whole
+slide is highly expressed and draws an empty map. `--rank mean` asks for the
+loudest instead, and `--genes` takes a list.
+
+Measured against the fp16 map it came from, over 40,000 patches and 3,000 genes:
+
+| | |
+|---|---|
+| Size | 11.9 GB → 0.93 GB |
+| Worst decode error | 0.0126, against a value range of 6.4 — half a step |
+| Values within half a step | 100.0000% |
+| Differential AUC, mean shift | 0.000041 |
+| Differential AUC, worst shift | 0.0009 |
+| Rank agreement on AUC | ρ = 0.9988 |
+| Top 25 genes preserved | 24 of 25 |
+
+That last row is the honest limit. Genes whose AUCs differ by less than 0.0009
+can swap places, so where a ranking is that close, read the AUCs rather than the
+row numbers — which is true of the fp16 map too, just less visibly.
+
+Quantised maps are also *faster* to work with than the fp16 ones they came from,
+because a byte is what makes the memory layout tractable. The Mann-Whitney
+counting sort bins by the stored value, so 256 bins replace 65,536 — small
+enough that 64 genes can be tested together, and at one byte per value 64 genes
+is exactly the cache line being fetched anyway. Each gene's group means then
+fall out of the same sweep instead of needing their own pass over the column.
+Measured on the 0.93 GB map above:
+
+| | |
+|---|---|
+| Opening the file | 72 ms |
+| Switching gene, 306,587 patches | 29 ms |
+| Region enrichment, all 3,000 genes | 4.1 s |
+
+The last of those was 28 s before the genes were blocked, which is the whole
+reason the number is worth quoting: the saving is not the disk space.
+
+Precision is a choice here, not an assumption: `--dtype float16` subsets the
+genes and keeps the original precision, and either way the tool prints the error
+it introduced. Keep the full map for anything leaving for scanpy —
+`expression_to_anndata.py` reads both forms and decodes the quantised one on the
+way out.
+
 ### Splitting one slide across several GPUs {#shards}
 
 A strided run is the case that needs this: quarter-stride is sixteen times the
@@ -693,6 +770,12 @@ python scripts/expression_to_anndata.py slide.expression.bin --spatialdata
 `--genes` is usually what makes a whole transcriptome workable downstream.
 `--spatialdata` additionally writes a SpatialData zarr with the patches as
 points and the map as a table annotating them (`pip install spatialdata`).
+
+It reads quantised maps too and decodes them on the way out, so a subset cut for
+the browser can still leave for scanpy. For anything where the numbers
+themselves are the result, export from the full fp16 map rather than from a
+subset of it — the quantisation is small and measured, but there is no reason to
+carry it into an analysis that has the original to hand.
 
 ---
 

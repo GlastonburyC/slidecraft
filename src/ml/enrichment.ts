@@ -274,7 +274,9 @@ function finish(
  * The bits need one adjustment to sort as the numbers do. IEEE floats compare
  * correctly as integers only when positive; a sign bit makes the order run
  * backwards. Inverting negatives and setting the top bit on positives maps both
- * onto one ascending range.
+ * onto one ascending range. A quantised map needs none of this — its codes
+ * already rank the way the values they stand for do — and takes the blocked
+ * path in `differentialExpression` instead.
  */
 function keyOf(bits: number): number {
   /*
@@ -289,7 +291,10 @@ function keyOf(bits: number): number {
   return b & 0x8000 ? (~b) & 0xffff : b | 0x8000;
 }
 
-const BINS = 65536;
+const HALF_BINS = 65536;
+const BYTE_BINS = 256;
+/** Genes tested together on a quantised map: 64 bytes is one cache line. */
+const GENE_BLOCK = 64;
 
 function countingU(
   raw: Uint16Array,
@@ -308,7 +313,7 @@ function countingU(
 
   let u = 0;
   let cumOut = 0;
-  for (let k = 0; k < BINS; k++) {
+  for (let k = 0; k < HALF_BINS; k++) {
     const a = histIn[k];
     const b = histOut[k];
     if (a !== 0) {
@@ -350,33 +355,105 @@ export function differentialExpression(
   const large = new Float32Array(sortSmaller ? nOut : nIn);
 
   /*
-   * Genes are read in blocks, because the layout is row-major by patch.
-   *
-   * Taking one gene at a time walks the whole map with a stride of the gene
-   * count — 38 KB on a whole transcriptome — so every read is a cache miss, and
-   * there are patches times genes of them. Reading BLOCK genes at once makes
-   * each patch's contribution a short contiguous run instead, and the same
-   * bytes then serve BLOCK columns.
-   *
-   * This is what the cost actually was. Sorting looked like the problem and was
-   * worth fixing on its own, but it was a third of it; the strided read was the
-   * rest.
+   * Half-precision and quantised maps take the counting path, which is every
+   * map produced by the GPU script and every subset cut from one — so it is the
+   * case that matters. fp32 falls back to sorting.
    */
-  /*
-   * Half-precision maps take the counting path, which is every map produced by
-   * the GPU script and so the case that matters. fp32 falls back to sorting.
-   */
-  const raw = result.half ? (result.values as Uint16Array) : null;
+  const quantised = !result.half && !!result.scale;
+  const raw = result.half || quantised ? (result.values as Uint16Array | Uint8Array) : null;
+
+  if (quantised) {
+    /*
+     * A quantised map is tested a block of genes at a time, because the layout
+     * is row-major by patch and one gene at a time is the worst way to read it.
+     *
+     * Walking a single column strides by the gene count, so every read lands on
+     * its own cache line: a 3,000-gene map by 306,587 patches pulls 64 bytes to
+     * use one of them, 920 million times. Taking GENE_BLOCK genes together makes
+     * each patch's contribution one contiguous run — and at one byte per value,
+     * 64 genes is exactly the 64-byte line that was being fetched anyway. The
+     * same traffic then serves 64 columns instead of one.
+     *
+     * This is only possible because the values are bytes. The fp16 path bins
+     * into 65,536 slots, so 64 genes of histogram would be 33 MB and spill to
+     * memory faster than the strided read it was meant to avoid; at 256 bins it
+     * is 131 KB, which stays in L2. Measured on the map above, this is the
+     * difference between 28 seconds and something you would wait for.
+     */
+    const codes = raw as Uint8Array;
+    const scale = result.scale!;
+    const zero = result.zero!;
+    const pairs = nIn * nOut;
+    const varU = (pairs / 12) * (n + 1);
+    const histIn = new Uint32Array(GENE_BLOCK * BYTE_BINS);
+    const histOut = new Uint32Array(GENE_BLOCK * BYTE_BINS);
+
+    for (let g0 = 0; g0 < stride; g0 += GENE_BLOCK) {
+      const count = Math.min(GENE_BLOCK, stride - g0);
+
+      for (let i = 0, base = g0; i < n; i++, base += stride) {
+        // Which histogram this patch counts into is decided once, not per gene.
+        const hist = mask[i] === 1 ? histIn : histOut;
+        for (let j = 0, at = base, slot = 0; j < count; j++, at++, slot += BYTE_BINS) {
+          hist[slot + codes[at]]++;
+        }
+      }
+
+      for (let j = 0; j < count; j++) {
+        const off = j * BYTE_BINS;
+        let u = 0;
+        let cumOut = 0;
+        let codeIn = 0;
+        let codeOut = 0;
+        for (let k = 0; k < BYTE_BINS; k++) {
+          const a = histIn[off + k];
+          const b = histOut[off + k];
+          if (a !== 0) {
+            u += a * (cumOut + b / 2);
+            codeIn += a * k;
+            histIn[off + k] = 0;
+          }
+          if (b !== 0) {
+            cumOut += b;
+            codeOut += b * k;
+            histOut[off + k] = 0;
+          }
+        }
+        const g = g0 + j;
+        // The sweep counted codes; the gene's own scale turns them into values,
+        // so the means cost no second pass over the data.
+        const m = scale[g];
+        const c = zero[g];
+        const sumIn = codeIn * m + c * nIn;
+        const sumOut = codeOut * m + c * nOut;
+        const auc = u / pairs;
+        const z = varU > 0 ? (u - pairs / 2) / Math.sqrt(varU) : 0;
+        const p = varU > 0 ? Math.min(1, 2 * normalSf(Math.abs(z))) : 1;
+        const meanIn = sumIn / nIn;
+        const meanOut = sumOut / nOut;
+        stats.push({
+          gene: result.genes[g], mean: (sumIn + sumOut) / n,
+          meanIn, meanOut, diff: meanIn - meanOut, auc, p, q: 1,
+        });
+        ps.push(p);
+      }
+    }
+    const kept = expressed(stats, ps, minExpression);
+    return finish(kept.stats, kept.ps, nIn, nOut, "gene");
+  }
 
   if (raw) {
-    const histIn = new Uint32Array(BINS);
-    const histOut = new Uint32Array(BINS);
+    const histIn = new Uint32Array(HALF_BINS);
+    const histOut = new Uint32Array(HALF_BINS);
     const pairs = nIn * nOut;
     const varU = (pairs / 12) * (n + 1);
 
     for (let g = 0; g < stride; g++) {
-      // Means still need the decoded values, and this pass is what pays for
-      // them — one walk of the column, shared with nothing.
+      /*
+       * fp16 bins by a remapped bit pattern rather than by the value, so the
+       * sweep cannot total the column and the means need their own walk of it.
+       * The quantised path above does not pay this.
+       */
       let sumIn = 0;
       let sumOut = 0;
       for (let i = 0, at = g; i < n; i++, at += stride) {
@@ -385,7 +462,7 @@ export function differentialExpression(
         else sumOut += v;
       }
 
-      const u = countingU(raw, g, stride, n, mask, histIn, histOut);
+      const u = countingU(raw as Uint16Array, g, stride, n, mask, histIn, histOut);
       const auc = u / pairs;
       const z = varU > 0 ? (u - pairs / 2) / Math.sqrt(varU) : 0;
       const p = varU > 0 ? Math.min(1, 2 * normalSf(Math.abs(z))) : 1;

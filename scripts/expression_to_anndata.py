@@ -67,8 +67,23 @@ def main() -> int:
     genes = list(header["genes"])
     patches = header["patches"]
     n, g = len(patches), len(genes)
-    itemsize = 4 if header.get("dtype") == "float32" else 2
-    dtype = np.float32 if itemsize == 4 else np.float16
+    stored = header.get("dtype", "float16")
+    itemsize = {"float32": 4, "float16": 2, "uint8": 1}.get(stored)
+    if itemsize is None:
+        print(f"Unknown dtype in the header: {stored}", file=sys.stderr)
+        return 1
+    dtype = {"float32": np.float32, "float16": np.float16, "uint8": np.uint8}[stored]
+    # A quantised map carries one scale and one zero per gene; see
+    # scripts/subset_expression.py for why it is stored that way.
+    scale = np.asarray(header.get("scale", []), dtype=np.float32)
+    zero = np.asarray(header.get("zero", []), dtype=np.float32)
+    if stored == "uint8" and (len(scale) != g or len(zero) != g):
+        print(
+            f"This uint8 map lists {len(scale)} scales and {len(zero)} zeros "
+            f"for {g} genes; it cannot be decoded.",
+            file=sys.stderr,
+        )
+        return 1
 
     keep = None
     if args.genes:
@@ -78,6 +93,9 @@ def main() -> int:
             return 1
         keep = np.array([genes.index(x) for x in args.genes])
         genes = list(args.genes)
+        if stored == "uint8":
+            scale = scale[keep]
+            zero = zero[keep]
 
     out_genes = len(genes)
     print(f"{n:,} patches x {g:,} genes"
@@ -89,7 +107,12 @@ def main() -> int:
             rows = min(BLOCK, n - start)
             fh.seek(offset + start * g * itemsize)
             block = np.frombuffer(fh.read(rows * g * itemsize), dtype=dtype).reshape(rows, g)
-            X[start : start + rows] = block[:, keep] if keep is not None else block
+            if keep is not None:
+                block = block[:, keep]
+            if stored == "uint8":
+                X[start : start + rows] = block.astype(np.float32) * scale + zero
+            else:
+                X[start : start + rows] = block
             print(f"\r  {min(start + rows, n):,}/{n:,}", end="", flush=True)
     print()
 

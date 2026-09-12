@@ -260,7 +260,19 @@ export function geneGradient(
 
   const stride = result.genes.length;
   const buffer = new Float32Array(along.length);
+  // A quantised map decodes with the gene's own scale, and the gene is fixed
+  // for the length of a column — so it is lifted out of the loop that runs
+  // once per gene per patch in the corridor.
+  const raw = result.scale ? (result.values as Uint8Array) : null;
   const column = (g: number) => {
+    if (raw) {
+      const m = result.scale![g];
+      const c = result.zero![g];
+      for (let i = 0; i < along.length; i++) {
+        buffer[i] = raw[along[i].index * stride + g] * m + c;
+      }
+      return buffer;
+    }
     for (let i = 0; i < along.length; i++) {
       buffer[i] = valueAt(result, along[i].index * stride + g);
     }

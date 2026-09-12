@@ -137,6 +137,36 @@ It submits over SSH using your own keys and agent — no password is asked for o
 stored — watches the queue, and brings back `slide.expression.bin`. Drop that
 folder into Slidecraft and the map opens with the slide.
 
+Drop `--panel` and pass `--all` for every gene the model knows. A whole slide at
+quarter stride then comes back as 306,587 patches by 19,338 genes — 11.9 GB,
+where a browser tab manages about 1.2. Two things in that file are waste, and
+one command removes both:
+
+```bash
+python scripts/subset_expression.py "slide.expression.bin" \
+    --out "slide.browse.bin" --min-expression 0.05 --top 3000
+```
+
+Most of the genes are not transcribed in the tissue — the decoder answers for
+olfactory receptors at the same cost per value as COL1A1, and they are noise
+being ranked against signal in every test as well as bytes on disk. And fp16 is
+finer than the model is: one byte with a per-gene scale holds 255 steps across
+the range that gene actually occupies, which is finer than the colour ramp
+drawing it. Together, 11.9 GB becomes 0.93 GB, and it loads.
+
+Measured against the fp16 map it came from, on 40,000 patches: every value
+within half a quantisation step, differential AUC agreeing to 0.000041 on
+average and 0.0009 at worst, and the two rankings correlating at ρ = 0.9988.
+Genes separated by less than that can still swap places — one of a top 25 did —
+so read the AUCs, not the row numbers, where they are close.
+
+That file opens in 72 ms, switches gene in 29 ms across 306,587 patches, and
+ranks all 3,000 genes over a drawn region in 4.1 s.
+
+Precision is a choice, not an assumption: `--dtype float16` subsets only, and
+either way the tool reports the error it introduced. Keep the full map for
+anything that leaves for scanpy; `scripts/expression_to_anndata.py` reads both.
+
 **Read modules, not single genes.** Per-gene accuracy from H&E is modest, so one
 predicted gene is mostly its own error. A module averages its genes after
 standardising each, which leaves the shared signal and averages the noise down.

@@ -16,7 +16,13 @@ import type { SpatialResult } from "../ml/spatialResult";
  *   magic      8 bytes   "SCEXPR1\0"
  *   headerLen  uint32    little-endian
  *   header     JSON, utf8
- *   values     patches x genes, row-major, fp16 or fp32 little-endian
+ *   values     patches x genes, row-major, fp16/fp32 little-endian or uint8
+ *
+ * The uint8 form is what `scripts/subset_expression.py` writes, and it is the
+ * only way a whole-transcriptome map reaches a browser at all: 306,587 patches
+ * by 19,338 genes is 11.9 GB as fp16, and a tab manages about 1.2 GB. Each gene
+ * carries its own `scale` and `zero`, so a byte spans that gene's own range
+ * rather than a range set by whichever gene in the map happened to be loudest.
  *
  * Coordinates in the header are level-0 pixels **of the slide it was computed
  * on**. A map is therefore tied to its slide, which is why the loader checks
@@ -32,7 +38,16 @@ export interface ExpressionHeader {
   patches: { x: number; y: number }[];
   /** Patch side in level-0 pixels. */
   side: number;
-  dtype: "float16" | "float32";
+  dtype: "float16" | "float32" | "uint8";
+  /**
+   * Per gene, for `uint8` maps: `value = code * scale[g] + zero[g]`.
+   *
+   * `zero` is at most 0, so a gene that never goes negative decodes code 0 to
+   * exactly 0 — a patch with no expression has to stay indistinguishable from
+   * one, or every sparse gene picks up a floor it does not have.
+   */
+  scale?: number[];
+  zero?: number[];
   model: string;
   modelId?: string;
   /**
@@ -79,7 +94,8 @@ export function parseExpressionFile(buffer: ArrayBuffer): SpatialResult {
 
   const expected = nPatches * nGenes;
   const wide = header.dtype === "float32";
-  const unit = wide ? 4 : 2;
+  const quantised = header.dtype === "uint8";
+  const unit = wide ? 4 : quantised ? 1 : 2;
   const payloadBytes = bytes.length - headerEnd;
   const got = Math.floor(payloadBytes / unit);
 
@@ -104,22 +120,46 @@ export function parseExpressionFile(buffer: ArrayBuffer): SpatialResult {
    * needs the copy. That is a rare case and a correct one, not a silent
    * fallback to something wrong.
    */
-  let values: Float32Array | Uint16Array;
+  let values: Float32Array | Uint16Array | Uint8Array;
   const aligned = headerEnd % unit === 0;
   if (wide) {
     values = aligned
       ? new Float32Array(buffer, headerEnd, expected)
       : new Float32Array(buffer.slice(headerEnd));
+  } else if (quantised) {
+    // A byte view needs no alignment at all, so this branch never copies.
+    values = new Uint8Array(buffer, headerEnd, expected);
   } else {
     values = aligned
       ? new Uint16Array(buffer, headerEnd, expected)
       : new Uint16Array(buffer.slice(headerEnd));
   }
 
+  /*
+   * A quantised map without its scales decodes to whatever the bytes happen to
+   * be — a plausible-looking field of numbers between 0 and 255, drawn with a
+   * colour ramp and tested for enrichment like any other. There is no way to
+   * notice that downstream, so it is refused here.
+   */
+  let scale: Float32Array | undefined;
+  let zero: Float32Array | undefined;
+  if (quantised) {
+    if (header.scale?.length !== nGenes || header.zero?.length !== nGenes) {
+      throw new InvalidExpressionFile(
+        `A uint8 map needs one scale and one zero per gene; this one lists ` +
+          `${header.scale?.length ?? 0} and ${header.zero?.length ?? 0} for ${nGenes} genes.`,
+      );
+    }
+    scale = Float32Array.from(header.scale);
+    zero = Float32Array.from(header.zero);
+  }
+
   return {
     genes: header.genes,
     values,
-    half: !wide,
+    half: !wide && !quantised,
+    scale,
+    zero,
     patches: header.patches.map((p, index) => ({
       index,
       col: 0,

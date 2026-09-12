@@ -66,14 +66,21 @@ def main() -> int:
         return 1
 
     for index, header, _, path in pieces:
-        for key in ("genes", "side", "dtype", "slide", "modelId"):
+        # `scale` and `zero` are here because a quantised shard decodes with
+        # them: two shards whose bytes mean different numbers would concatenate
+        # into a file that opens and draws a smoothly wrong gradient at the
+        # seam, which is the failure this script exists to prevent.
+        for key in ("genes", "side", "dtype", "slide", "modelId", "scale", "zero"):
             if header.get(key) != first.get(key):
                 print(f"{path} disagrees about {key}; these are not one run.",
                       file=sys.stderr)
                 return 1
 
     genes = first["genes"]
-    itemsize = 4 if first.get("dtype") == "float32" else 2
+    itemsize = {"float32": 4, "float16": 2, "uint8": 1}.get(first.get("dtype", "float16"))
+    if itemsize is None:
+        print(f"Unknown dtype in the header: {first.get('dtype')}", file=sys.stderr)
+        return 1
     patches = [p for _, h, _, _ in pieces for p in h["patches"]]
 
     merged = dict(first)

@@ -20,11 +20,22 @@ export interface SpatialResult {
   genes: string[];
   /**
    * `patches.length * genes.length` values, row-major by patch. Half-precision
-   * when `half` is set — read it through `valueAt` rather than indexing.
+   * when `half` is set, quantised when `scale` is — read it through `valueAt`
+   * rather than indexing.
    */
-  values: Float32Array | Uint16Array;
+  values: Float32Array | Uint16Array | Uint8Array;
   /** Whether `values` holds IEEE half bit patterns rather than numbers. */
   half?: boolean;
+  /**
+   * Per gene, when `values` is a `Uint8Array`: `value = code * scale[g] + zero[g]`.
+   *
+   * One byte per value is what makes a whole transcriptome loadable, and a
+   * per-gene scale is what makes a byte enough — 255 steps across the range a
+   * gene actually occupies is finer than the colour ramp that draws it and
+   * finer than the model that produced it. See `scripts/subset_expression.py`.
+   */
+  scale?: Float32Array;
+  zero?: Float32Array;
   patches: Patch[];
   /** Side of a patch in level-0 slide pixels, for drawing. */
   side: number;
@@ -51,7 +62,14 @@ export function fromHalf(bits: number): number {
 /** One value out of the flat array, whichever precision it is stored in. */
 export function valueAt(result: SpatialResult, k: number): number {
   const v = result.values[k];
-  return result.half ? fromHalf(v) : v;
+  if (result.half) return fromHalf(v);
+  if (result.scale) {
+    // Row-major by patch, so the gene is the position within the row. Callers
+    // walking a whole column should use `geneValues`, which hoists this out.
+    const g = k % result.genes.length;
+    return v * result.scale[g] + result.zero![g];
+  }
+  return v;
 }
 
 export function geneIndex(result: SpatialResult, gene: string): number {
@@ -65,6 +83,14 @@ export function geneValues(result: SpatialResult, gene: string): Float32Array | 
   const n = result.patches.length;
   const stride = result.genes.length;
   const out = new Float32Array(n);
+  if (result.scale) {
+    // The gene is fixed down a column, so its scale leaves the loop.
+    const raw = result.values as Uint8Array;
+    const m = result.scale[g];
+    const c = result.zero![g];
+    for (let i = 0, at = g; i < n; i++, at += stride) out[i] = raw[at] * m + c;
+    return out;
+  }
   for (let i = 0; i < n; i++) out[i] = valueAt(result, i * stride + g);
   return out;
 }
