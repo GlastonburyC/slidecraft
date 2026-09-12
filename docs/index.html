@@ -139,6 +139,17 @@
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; margin-top: 28px; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; }
   .card h4 { margin: 0 0 7px; font-size: 15px; }
+  /* A whole tutorial card is a link target, so the heading carries the colour
+     and the hover rather than leaving a bare blue line in a grid of prose. */
+  .card h4 a { color: var(--text); }
+  .card h4 a:hover { color: var(--accent); text-decoration: none; }
+  .card:has(h4 a):hover { border-color: var(--accent-dim); }
+  /* Styled here as well as in the tutorial shell: the homepage names keys too,
+     and an unstyled <kbd> just looks like a typo. */
+  kbd {
+    font: 11.5px/1 var(--mono); padding: 3px 6px; border-radius: 4px;
+    background: #1b222a; border: 1px solid var(--line-2); color: var(--text);
+  }
   .card p { margin: 0; font-size: 14.5px; color: var(--dim); line-height: 1.6; }
 
   pre {
@@ -191,7 +202,7 @@
     <h1>Slidecraft</h1>
     <nav>
       <a href="#how">How it works</a>
-      <a href="TUTORIAL.html">Tutorial</a>
+      <a href="#tutorials">Tutorials</a>
       <a href="https://github.com/GlastonburyC/slidecraft">GitHub</a>
     </nav>
   </div>
@@ -378,6 +389,82 @@
         have chosen.
       </figcaption>
     </figure>
+  </div>
+</section>
+
+<section id="tutorials">
+  <div class="wrap">
+    <h3>Tutorials</h3>
+    <p>
+      One short walkthrough per capability. Each stands on its own — start
+      wherever your question is.
+    </p>
+    <div class="grid">
+      <div class="card">
+        <h4><a href="TUTORIAL.html#open">Open a slide</a></h4>
+        <p>SVS, NDPI, MIRAX, BigTIFF, DICOM and more. Why a <code>.mrxs</code> has to be dropped as a folder, and what to do with a batch of hundreds.</p>
+      </div>
+      <div class="card">
+        <h4><a href="TUTORIAL.html#associated">What comes with the slide</a></h4>
+        <p>Annotations and expression maps named after a slide load with it. What arrived is listed, and one switch turns it off.</p>
+      </div>
+      <div class="card">
+        <h4><a href="TUTORIAL.html#annotate">Annotate</a></h4>
+        <p>Polygon, freehand, brush and eraser with live boolean ops, your own classes, and undo that does not clone the document per stroke.</p>
+      </div>
+      <div class="card">
+        <h4><a href="TUTORIAL.html#tissue">Detect tissue</a></h4>
+        <p>Fragments found separately and grown into faded tissue. What the thresholds mean and when to move them.</p>
+      </div>
+      <div class="card">
+        <h4><a href="TUTORIAL.html#train-tissue">Train it on your corrections</a></h4>
+        <p>Mark what the detector got wrong and those marks are the training set. Fits in about a second, and accumulates across slides.</p>
+      </div>
+      <div class="card">
+        <h4><a href="TUTORIAL.html#batch">Run a folder unattended</a></h4>
+        <p>Point it at a directory: one GeoJSON per slide, written beside it, ready to be dropped back in.</p>
+      </div>
+      <div class="card">
+        <h4><a href="TUTORIAL.html#cells">Segment cells on a click</a></h4>
+        <p>SAM and SlimSAM in the browser. The encoder runs once per view; every click after that is milliseconds.</p>
+      </div>
+      <div class="card">
+        <h4><a href="TUTORIAL.html#patches">Patch a region</a></h4>
+        <p>Press <kbd>T</kbd> and drag. Size in pixels at a level, clipped to detected tissue, and every patch can become an editable object.</p>
+      </div>
+      <div class="card">
+        <h4><a href="TUTORIAL.html#predict">The prediction loop</a></h4>
+        <p>Embed once, then label, train, look, disagree, retrain. Cached embeddings are what make the retrain instant.</p>
+      </div>
+      <div class="card">
+        <h4><a href="TUTORIAL.html#spatial">Virtual spatial transcriptomics</a></h4>
+        <p>DeepSpot-M reads the H&amp;E and answers with a value per gene. Compute on a GPU and drop the folder in, or import an ONNX export.</p>
+      </div>
+      <div class="card">
+        <h4><a href="TUTORIAL.html#cluster">Run it on your cluster</a></h4>
+        <p>One flag submits to Slurm over SSH, watches the queue and brings the result back. Your keys and agent, never a password.</p>
+      </div>
+      <div class="card">
+        <h4><a href="TUTORIAL.html#modules">Modules, not single genes</a></h4>
+        <p>Fourteen cell-type modules built in, or 111 derived from the CELLxGENE Census. Why an average beats any one predicted gene.</p>
+      </div>
+      <div class="card">
+        <h4><a href="TUTORIAL.html#enrichment">What is in this region?</a></h4>
+        <p>Draw round an area and rank the cell types — or the genes — over-represented in it against the rest of the slide.</p>
+      </div>
+      <div class="card">
+        <h4><a href="TUTORIAL.html#gradients">What changes along an axis?</a></h4>
+        <p>Press <kbd>A</kbd> and drag an arrow, crypt base to surface. Ranked by how each gene or module rises and falls along it.</p>
+      </div>
+      <div class="card">
+        <h4><a href="TUTORIAL.html#export">Export</a></h4>
+        <p>GeoJSON in level-0 pixels with QuPath's own fields, patch coordinates as JSON, and expression as CSV.</p>
+      </div>
+      <div class="card">
+        <h4><a href="TUTORIAL.html#troubleshooting">Troubleshooting</a></h4>
+        <p>Cross-origin isolation, slow first tiles on shallow pyramids, and the tissue class catching your cell segmentations.</p>
+      </div>
+    </div>
   </div>
 </section>
 

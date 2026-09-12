@@ -51,6 +51,28 @@ wrong**, and retrain from those edits.
 | **Runs over a folder** | Unattended, one GeoJSON per slide — or a whole transcriptome on your GPU cluster. |
 | **Speaks GeoJSON** | QuPath-compatible in both directions, so nothing dead-ends here. |
 
+## Tutorials
+
+One short walkthrough per capability, each standing on its own:
+
+| | |
+|---|---|
+| [Open a slide](TUTORIAL.md#open) | SVS, NDPI, MIRAX, BigTIFF, DICOM — and why `.mrxs` goes in as a folder |
+| [What comes with the slide](TUTORIAL.md#associated) | Annotations and expression maps named after a slide load with it |
+| [Annotate](TUTORIAL.md#annotate) | Polygon, freehand, brush, boolean ops, classes, undo |
+| [Detect tissue](TUTORIAL.md#tissue) | Fragments kept separate, faded tissue grown into |
+| [Train on your corrections](TUTORIAL.md#train-tissue) | The corrections *are* the training set |
+| [Run a folder](TUTORIAL.md#batch) | Unattended, one GeoJSON per slide |
+| [Segment cells](TUTORIAL.md#cells) | SAM in the browser, milliseconds per click |
+| [Patch a region](TUTORIAL.md#patches) | <kbd>T</kbd> and drag; clipped to tissue |
+| [The prediction loop](TUTORIAL.md#predict) | Embed once, then label, train, correct, retrain |
+| [Virtual spatial transcriptomics](TUTORIAL.md#spatial) | Gene expression predicted from the H&E |
+| [Run it on a cluster](TUTORIAL.md#cluster) | Slurm over SSH, your keys, no password |
+| [Modules, not single genes](TUTORIAL.md#modules) | 14 built in, 111 more from CELLxGENE |
+| [What is in this region?](TUTORIAL.md#enrichment) | Rank the cell types, or the genes |
+| [What changes along an axis?](TUTORIAL.md#gradients) | <kbd>A</kbd> and drag an arrow |
+| [Export](TUTORIAL.md#export) | GeoJSON, patch coordinates, expression CSV |
+
 ## Quick start
 
 ```bash

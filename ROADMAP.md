@@ -77,9 +77,7 @@ reattaches each result to its slide by name.
 
 ---
 
-## Next
-
-### Phase 3 — The prediction loop (in progress)
+### Phase 3 — The prediction loop ✅
 
 **Built:** patch embedding with UNI2-h and Virchow2, cached in OPFS keyed by
 slide, encoder, level and patch position, so a second pass over the same ROI
@@ -93,6 +91,11 @@ Two encoder details are not recoverable from the hub and are named explicitly
 in the exporter: UNI2-h needs its own timm configuration, and Virchow2's
 embedding is the class token concatenated with the mean of the patch tokens —
 2560-d, not the 1280-d its bare forward returns.
+
+Patching became a tool rather than a panel along the way: press <kbd>T</kbd> and
+drag, and the region tiles at the chosen size, clipped to detected tissue. The
+grid arriving with the gesture is the difference between checking a grid and
+discovering after an hour of encoder time that it sat half on glass.
 
 **Left:** an active-learning queue that ranks unlabelled patches by margin and
 diversity, and persisting a trained head so it can be reused on the next slide.
@@ -114,9 +117,47 @@ The pieces already exist — patch grids, the embedding cache, a trainer that
 fits in a second, and the correction UI. What is missing is an encoder wired to
 the grid.
 
-### Phase 4 — Sidecar and HPC
+### Phase 3½ — Virtual spatial transcriptomics ✅
 
-A pip-installable FastAPI service that runs locally or as a Slurm job on a GPU
+Expression predicted from the H&E itself, via DeepSpot-M. This was not in the
+original plan at all, and is now the half of the app people ask about first.
+
+**Built:** a whole-slide GPU path — `scripts/predict_expression.py`, which
+writes an `.expression.bin` beside the slide that the browser loads with it.
+One flag submits the same command to Slurm over SSH using your own keys and
+agent, watches the queue and brings the result back. The cluster uses the
+browser's own tissue detector, ported line for line in `scripts/tissue.py`, so a
+patch chosen on a GPU node is one Slidecraft would have chosen.
+
+Reading a map is where most of the design went, because a single predicted gene
+is mostly its own error. Fourteen cell-type modules ship built in and 111 more
+are derived from the CELLxGENE Census, each averaging its genes after
+standardising them so an abundant one cannot carry the module. Draw round a
+region and rank the cell types in it; drag an arrow and rank what rises and
+falls along it. A module the map cannot cover is hidden rather than scored on
+two genes and presented as if it meant something.
+
+A whole transcriptome is 32,000 patches by 19,338 genes — 1.2 GB — and loads in
+under a second because the values stay in the half precision they arrived in and
+are decoded one gene at a time.
+
+**Left:** blending overlapping patches, so `--stride` produces a finer map
+instead of overdrawing; the same raised-cosine weighting the trained-head path
+already uses. And moving whole-transcriptome ranking off the main thread — six
+seconds is honest about itself now, but a worker would be better.
+
+## Next
+
+### Phase 4 — Sidecar and HPC (half done)
+
+**Built:** the batch half. `--submit HOST` copies the script and the slide,
+submits to Slurm, polls, and brings the map back; `--remote-slide` uses a copy
+already on cluster storage; `--dry-run` prints everything and sends nothing. No
+password is ever handled — authentication is delegated to your SSH agent and
+config, which is also why a browser cannot do this part itself: page JavaScript
+cannot open a TCP connection, so SSH from the tab is not a thing that exists.
+
+**Left:** the interactive half. A pip-installable FastAPI service that runs locally or as a Slurm job on a GPU
 node, reached through an SSH port-forward using your existing keys and agent.
 Patch-push by default so the slide never leaves your machine; cluster-side slide
 reading when the WSI already lives there. `Cross-Origin-Resource-Policy:
@@ -129,10 +170,13 @@ a time, with per-object editing, measurements, and stain normalisation.
 
 ---
 
-## Phase 6 — Spatial transcriptomics 🧬
+## Phase 6 — Measured spatial transcriptomics 🧬
 
-Bringing Visium and Xenium into the same viewer, with everything already built
-applying to them: annotate, detect tissue, patch, correct, train.
+Not to be confused with Phase 3½, which is *predicted* expression from the H&E.
+This is the real assay: bringing Visium and Xenium runs into the same viewer,
+with everything already built applying to them — annotate, detect tissue, patch,
+correct, train. The two meet at the obvious question, which is whether a
+prediction agrees with a measurement on the same tissue.
 
 The premise is that spatial data is a *slide problem* before it is an omics
 problem. The expression matrix is well served by existing tools; what is not

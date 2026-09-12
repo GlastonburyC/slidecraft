@@ -59,7 +59,21 @@ function render(md) {
     const heading = /^(#{1,4})\s+(.*)$/.exec(line);
     if (heading) {
       const level = heading[1].length + 1; // h1 is the page title
-      out.push(`<h${level}>${inline(heading[2])}</h${level}>`);
+      /*
+       * Headings carry an id, so the site can link straight at one.
+       *
+       * Written explicitly as `## Title {#slug}` wherever something links to
+       * it: a slug derived from the words changes the moment the words do, and
+       * a tutorial link that silently stops landing anywhere is worse than no
+       * link. Anything without one still gets a derived slug, which is fine for
+       * a heading nothing points at.
+       */
+      const explicit = /\s*\{#([a-z0-9-]+)\}\s*$/.exec(heading[2]);
+      const text = explicit ? heading[2].slice(0, explicit.index) : heading[2];
+      const id = explicit
+        ? explicit[1]
+        : text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      out.push(`<h${level} id="${id}">${inline(text)}</h${level}>`);
       i++;
       continue;
     }

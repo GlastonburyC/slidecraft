@@ -1,14 +1,23 @@
 # Slidecraft tutorial
 
 A full pass through the tool: open a slide, annotate it, teach it what tissue
-looks like on your material, and run that over a folder.
+looks like on your material, run that over a folder — and read gene expression
+off the H&E itself.
 
 Nothing is uploaded. Slides are read in your browser by OpenSlide compiled to
 WebAssembly, so a 2 GB SVS never leaves the machine.
 
+Each section stands on its own, so jump to what you need:
+[annotating](#annotate) · [tissue detection](#tissue) ·
+[training a tissue classifier](#train-tissue) · [batch over a folder](#batch) ·
+[cell segmentation](#cells) · [patching](#patches) ·
+[the prediction loop](#predict) · [virtual spatial transcriptomics](#spatial) ·
+[modules](#modules) · [region enrichment](#enrichment) ·
+[gradients along an axis](#gradients) · [running on a cluster](#cluster)
+
 ---
 
-## 1. Open a slide
+## 1. Open a slide {#open}
 
 Drag a slide anywhere onto the window, or use **Choose files**.
 
@@ -23,7 +32,7 @@ Drop many at once — the **Slides** list is filterable once there are more than
 handful. Right-click a slide, or press <kbd>Backspace</kbd> on it, to remove it
 from the list; its annotations are kept.
 
-## 2. Get around
+## 2. Get around {#navigate}
 
 | | |
 |---|---|
@@ -36,7 +45,24 @@ from the list; its annotations are kept.
 <kbd>Space</kbd> is worth the muscle memory: comparing a boundary against the
 tissue underneath it is the most repeated action in the app.
 
-## 3. Annotate
+## 3. What comes with the slide {#associated}
+
+A slide rarely arrives alone. A batch run writes `<slide>.geojson` beside each
+slide and a GPU run writes `<slide>.expression.bin`, so dropping the folder back
+in brings the work with it rather than leaving it to be imported by hand, one
+slide at a time.
+
+The **Slides** panel lists what arrived — how many annotations, how many patches
+by how many genes, and from which file — because annotations appearing that you
+did not draw are unsettling when nothing says why.
+
+The lamp beside it turns this off, for a slide whose neighbours on disk are
+stale: an old segmentation you do not want coloured over the new one, or a map
+from a model you have since replaced. It never overwrites either way — anything
+already saved for the slide wins, and a map computed on a different slide is
+refused rather than drawn in the wrong place.
+
+## 4. Annotate {#annotate}
 
 Pick a tool from the rail. Each has a one-key shortcut, shown on the button.
 
@@ -48,7 +74,9 @@ Pick a tool from the rail. Each has a one-key shortcut, shown on the button.
 | <kbd>B</kbd> | Brush | Merges with the same class underneath. **Right-click the tool for size.** |
 | <kbd>E</kbd> | Eraser | Subtracts from anything it touches |
 | <kbd>N</kbd> | Point | Counting points |
-| <kbd>O</kbd> | ROI | The working frame for patching and prediction |
+| <kbd>O</kbd> | ROI | The working frame for prediction |
+| <kbd>T</kbd> | Patch | Drag a region and it tiles — see [patching](#patches) |
+| <kbd>A</kbd> | Axis | Drag an arrow to read a gradient — see [gradients](#gradients) |
 | <kbd>G</kbd> | Click-to-segment | One click per cell |
 
 **Classes are yours.** There are no defaults. Right-click an object to name a
@@ -59,7 +87,7 @@ the objects stay, and stay exported.
 
 **ROIs resize.** Select one and drag any corner or edge handle.
 
-## 4. Detect tissue
+## 5. Detect tissue {#tissue}
 
 In the **Tissue** panel, click **Detect tissue**.
 
@@ -72,7 +100,7 @@ It is genuinely good on well-stained material and it will make mistakes on
 yours — dust, bubbles, mounting medium, pen marks, a faded section. That is what
 the next step is for.
 
-## 5. Teach it
+## 6. Teach it {#train-tissue}
 
 The correction *is* the training example. There is no separate labelling chore.
 
@@ -114,7 +142,7 @@ colour rule keeps getting wrong.
 It fits in about a second, so retraining after another handful of corrections is
 not a chore.
 
-## 6. Use it
+## 7. Use it {#use-tissue}
 
 **Use the model when detecting tissue** is ticked automatically. **Detect
 tissue** now runs your classifier. The panel tells you which model produced the
@@ -126,7 +154,7 @@ future slide. Switch between saved models by clicking one.
 Still wrong somewhere? Mark those regions, **Update this slide's labels**, train
 again.
 
-## 7. Run it over a folder
+## 8. Run it over a folder {#batch}
 
 Click **Run on a folder…**, choose a directory, **Run**.
 
@@ -141,7 +169,7 @@ never overwrites annotations you already saved in the app.
 > Needs Chrome or Edge. Safari and Firefox cannot write files back into a chosen
 > folder; the dialog says so rather than failing silently.
 
-## 8. Segment cells
+## 9. Segment cells {#cells}
 
 Press <kbd>G</kbd>, then **Encode view** in the Click-to-segment panel. The
 encoder runs once over what you are looking at; each click after that costs
@@ -161,21 +189,30 @@ fetch.
 > region under them, they are drawn in the same colour and you will not see
 > them. Pick or create a separate class — e.g. "Nuclei" — before you start.
 
-## 9. Patch an ROI
+## 10. Patch a region {#patches}
 
-Draw an ROI with <kbd>O</kbd>, then in **Patches** choose a size in pixels
-(128×128, 256×256) and a pyramid level, and **Lay grid over ROI**.
+Press <kbd>T</kbd> and drag across the tissue. The grid arrives with the drag,
+at whatever size the tool's panel is set to — there is no separate step.
 
-Patches are specified in pixels at a level, not in microns, because that is how
-an encoder is defined — a ViT sees a fixed pixel tensor. The panel reports the
-micron size each patch covers, since that is what decides whether the grid is
-looking at cells or at architecture, and it differs between scanners for the
-same pixel count.
+The settings sit beside the tool rail and are on screen only while the tool is
+held. **Re-tile** applies a changed size to the region you last drew; the drag
+itself is what creates a new one.
 
-**Only where there is tissue** clips the grid to detected tissue, so an ROI
-drawn loosely round a fragment does not spend the encoder on glass.
+Patches are specified in pixels at a pyramid level, not in microns, because
+that is how an encoder is defined — a ViT sees a fixed pixel tensor. The panel
+reports the micron size each patch covers, since that is what decides whether
+the grid is looking at cells or at architecture, and it differs between
+scanners for the same pixel count.
 
-**Make patch objects** turns the grid into real regions in a `Patch` class. Each
+**Only where there is tissue** clips the grid to detected tissue, so a region
+drawn loosely round a fragment does not spend the encoder on glass. Run
+[Detect tissue](#tissue) first for this to have anything to clip to.
+
+The region itself is still an ROI. It is the frame the grid sits in, and
+everything downstream asks which ROI you are working in, so making it anything
+else would put that question out of reach.
+
+**Make N patch objects** turns the grid into real regions in a `Patch` class. Each
 one behaves like an ROI: select it, drag its corners or edges to adjust it, give
 it a class. That matters because a patch is a window you chose rather than a
 measurement — if the grid put one half off the tissue, you can move it before
@@ -193,7 +230,7 @@ The grid also leaves as coordinates rather than as image files:
 Nothing is copied out of the browser, so the patches cannot drift from the
 slide they came from.
 
-## 10. Train a classifier on your own annotations
+## 11. Train a classifier on your own annotations {#predict}
 
 The **Predict** tab is the loop the whole app is arranged around: embed once,
 then label, train, look, disagree, retrain.
@@ -265,21 +302,56 @@ reports a much better number and means much less. If there is no score, your
 labels sit in too few places on the slide to hold any back — annotate in a few
 separate spots.
 
-## 11. Virtual spatial transcriptomics
+## 12. Virtual spatial transcriptomics {#spatial}
 
-The **Spatial** tab predicts gene expression from the H&E itself — no assay on
-this section. It is built around DeepSpot-M, which reads a 224 px tile at about
-20× and answers with a value per gene.
+The **Virtual ST** tab predicts gene expression from the H&E itself — no assay
+on this section. It is built around DeepSpot-M, which reads a 224 px tile at
+about 20× and answers with a value per gene.
 
-### Getting the model
+There are two ways to get a map, and for a whole slide only the first is
+practical.
 
-The weights are gated and released as PyTorch, so there is a one-off setup:
+### 1. Compute it on a GPU, drop the folder in {#gpu-map}
+
+DeepSpot-M is a 1B-parameter encoder: minutes per patch in a browser, seconds
+on a GPU. So run it where the GPU is.
+
+```bash
+python scripts/predict_expression.py slide.svs --panel ibd-colon
+```
+
+It writes `slide.expression.bin` beside the slide. Drop that folder into
+Slidecraft and the map opens with the slide — see
+[associated data](#associated).
+
+Three arguments are worth knowing:
+
+- `--panel ibd-colon` is 140 curated markers of colonic inflammatory bowel
+  disease, grouped by readout. `--genes EPCAM CD3D …` takes your own list, and
+  `--all` does the whole 19,338-gene transcriptome.
+- `--source` picks which of DeepSpot-M's five frozen gene-embedding pathways
+  conditions the gene router — `evo2`, `orthrus`, `prott5`, `scgpt` or
+  `apertus`. The default is `scgpt`, which is what the model card's own example
+  uses. They are not interchangeable, so the choice is written into the file's
+  header and into its `modelId`.
+- `--stride` overlaps the patches. Note that the expression overlay does not
+  blend overlapping patches yet, so a strided map currently overdraws rather
+  than resolving finer.
+
+The tissue detection is the same algorithm the browser uses, ported line for
+line in `scripts/tissue.py`, so a patch chosen on a GPU node is a patch
+Slidecraft would have chosen.
+
+### 2. Import an ONNX export and run it here {#onnx-map}
+
+For one ROI and a handful of genes, when there is no GPU to reach. The weights
+are gated and released as PyTorch, so there is a one-off setup:
 
 1. Accept the terms at `huggingface.co/ratschlab/DeepSpotM`. They are limited to
    academic and public non-profit research, with no concurrent commercial role.
 2. `.venv-export/bin/hf auth login` — note the path; `hf` is not on your PATH
 3. `.venv-export/bin/python scripts/export_deepspot.py --genes EPCAM CD3D PTPRC COL1A1`
-4. **Import model…** in the Spatial tab, and give it both the `.onnx` and the
+4. **Import model…** in the Virtual ST tab, and give it both the `.onnx` and the
    `.onnx.json` written beside it.
 
 Slidecraft cannot accept that licence on your behalf, so it cannot fetch the
@@ -289,9 +361,10 @@ Pick your genes at export time. Each gene is a query into the decoder, so eight
 genes cost a fraction of all 19,338 — that is what makes this run in a browser
 at all.
 
-### Running it
+### Running an imported model here {#run-onnx}
 
-Choose **This ROI** or **Whole slide**, then **Predict expression**.
+With a model imported, choose **This ROI** or **Whole slide**, then **Predict
+expression**.
 
 Start with an ROI. It is quick enough to iterate on, and it is how you find out
 whether the model says anything sensible about your material before spending an
@@ -299,24 +372,23 @@ hour on a slide. Progress shows the per-patch cost as it goes, and **stop** ends
 the run without leaving a half-finished map on screen.
 
 The grid is laid at the model's own patch size and magnification, not the
-Patches tab's — feeding a 40× tile to a model trained at 20× shows it half the
+patch tool's — feeding a 40× tile to a model trained at 20× shows it half the
 tissue it expects, which changes the answer without failing.
 
-### All 19,338 genes: run it offline
+### What a whole transcriptome costs {#cost}
 
-You cannot do the whole transcriptome in a browser — a 1B-parameter encoder plus
-a decoder that scales with gene count is minutes per patch on WASM. So run it
-where the GPU is:
+All 19,338 genes over a 400 mm² resection — about 32,000 patches — is roughly
+40 minutes on one V100 and 1.2 GB on disk. Gene count barely changes that: the
+vision backbone dominates and the gene decoder rides along, so `--all` costs
+little more than a 140-gene panel. Patch count is the axis that matters, which
+is why `--stride` gets expensive fast.
 
-```bash
-python scripts/predict_expression.py slide.svs --all --device cuda
-```
+Slidecraft loads a map that size in well under a second and switches gene in
+about 70 ms. The values stay in the half precision they arrived in and are
+decoded one gene at a time, because widening 620 million of them to fp32 up
+front is several gigabytes to show one gene.
 
-That writes `slide.expression.bin` beside the slide. Drop the folder into
-Slidecraft and each slide opens with its own map already attached, exactly like
-the tissue GeoJSON sidecars.
-
-### Running it on a cluster
+### Running it on a cluster {#cluster}
 
 Add `--submit` and it goes to Slurm instead: copies the script and the slide,
 submits to the queue, waits, and brings the map back.
@@ -359,31 +431,66 @@ A map is tied to the slide it was computed on — the patch coordinates are that
 slide's level-0 pixels — so Slidecraft checks the name and refuses to draw one
 over a different slide rather than silently misplacing it.
 
-### Cell-type signatures instead of single genes
+### Modules, not single genes {#modules}
 
 Per-gene prediction from H&E is noisy. Averaging a marker set buys that back:
 the independent part of each gene's error averages down while the shared signal
-does not, and "where are the T cells" is usually the real question.
+does not, and "where are the T cells" is usually the real question. The
+difference is stark — a single gene reads as static where the same genes as a
+module show mucosa, submucosa and muscle wall.
+
+**Fourteen modules ship built in**, so a map is readable the moment it loads:
+epithelium, mature colonocyte, goblet, crypt, antimicrobial, the calprotectin
+axis, T cells, plasma cells, myeloid, cytokines that are also drug targets,
+chemokines, stroma, vessels, neuroendocrine. Switch to **Signatures** to pick
+one. The best-covered is selected automatically when a map arrives.
+
+Each row shows how many of its genes the loaded map actually carries. A module
+the map cannot cover with at least three is hidden rather than scored on a
+couple and presented as if it meant something — so the same list serves an
+eight-gene map and a whole transcriptome.
+
+For more depth, `signatures/ibd-colon.json` carries **111 annotated cell types**
+derived from 156,905 colonic cells across ulcerative colitis, Crohn's disease
+and normal tissue. Load it with **Load more**. Derive your own for any tissue
+and disease the CELLxGENE Census covers:
 
 ```bash
 .venv-export/bin/pip install cellxgene-census
-python scripts/signatures_from_cellxgene.py --tissue lung --top 40
+python scripts/signatures_from_cellxgene.py --tissue colon \
+    --disease "ulcerative colitis" --disease "Crohn disease" --disease normal
 ```
 
-That writes `signatures.json` plus `signatures.genes.txt` — export the model to
-cover exactly those genes, then import the signatures under **Signatures** in
-the Spatial tab. Each row shows how many of its genes the loaded model actually
-predicts; a signature scored on three of forty is a weak one.
+Two things that query taught us, both worth knowing before you run your own.
+Colonic IBD sits under `tissue_general == "colon"`; `"large intestine"` holds
+none of it. And genes are ranked *after* mitochondrial and ribosomal
+transcripts are removed, not before — those track dissociation stress and
+sequencing depth rather than cell identity, and left in they top the ranking and
+push real markers out.
 
 Scores are standardised per gene across the patches before averaging, so they
 are **relative to this slide**: they say where a cell type is concentrated here,
-not how much of it there is compared with another slide.
+not how much of it there is compared with another slide. That also means a
+module's difference is in standard deviations, where a single gene's is in the
+model's own units.
 
-### Which genes are enriched in an area?
+### What is in this region? {#enrichment}
 
-Draw round something — a calcified focus, a tumour nest — with any tool, select
-it, and hit **Which genes are enriched here?** in the Spatial tab. It compares
-the patches inside against the rest and ranks every gene.
+Draw round something — a calcified focus, a tumour nest, a lymphoid aggregate —
+with any tool, select it, and ask one of two questions in the Virtual ST tab.
+
+**Which cell types?** ranks the modules by how well they separate your region
+from the rest of the slide. This is usually the question you actually have:
+"CXCL13 is enriched here" is only useful to someone who already knows what
+CXCL13 means, where "this is a lymphoid aggregate" is the finding itself. With
+`signatures/ibd-colon.json` loaded you get all 111 cell types ranked instead of
+the fourteen built-in modules.
+
+**Which genes?** does the same against every gene in the map.
+
+A box drawn over colonic mucosa returns Epithelium 0.87, Goblet 0.85,
+Colonocyte 0.84 and Crypt 0.83, with Neutrophil depleted at 0.31 — which is
+mucosa described as mucosa.
 
 The ranking is by **AUC**: the probability a random inside patch exceeds a
 random outside one. 0.5 is nothing, 1.0 is perfect separation. Export gives you
@@ -393,6 +500,39 @@ mean in, mean out, difference, AUC, p and q.
 > patches are near-copies of each other, so the effective sample size is well
 > below the patch count and every test is anti-conservative. Rank by AUC; use q
 > to filter obvious noise, not as evidence.
+
+### What changes along an axis? {#gradients}
+
+Enrichment asks whether a region differs from the rest, which suits a thing with
+a boundary. Much of mucosa has none — expression varies *along* an axis, crypt
+base to luminal surface, mucosa to muscularis — and splitting that into inside
+and outside throws away the ordering, which was the signal.
+
+So press <kbd>A</kbd> and drag an arrow across the tissue. Each patch is
+projected onto it and rank-correlated with how far along it sits, and the answer
+is **signed by the direction you drew**: positive rises toward the arrowhead.
+Reverse the arrow and every sign flips. That is why the axis is drawn with a
+head — a plain line cannot tell you which claim you are reading.
+
+**Corridor** sets how wide a band around the arrow counts, in patches. Without
+it the projection would accept the whole slide and compute a gradient across
+tissue the arrow never pointed at. Patches outside the band, or past either end,
+are not counted.
+
+Drawn from mucosa to wall on a colonic resection — 6 mm, 266 patches — this
+returns Goblet −0.86, Colonocyte −0.84, Crypt −0.84 and Epithelium −0.83 all
+falling, with Myeloid +0.77 and Vascular +0.73 rising. The genes behave the same
+way: LCN2, FCGBP, SLC26A3, DMBT1 and KRT20 at the top, all epithelial, all
+falling as you leave the mucosa.
+
+Ranking is by the size of the correlation regardless of direction, so a gene
+that falls ranks alongside one that rises — direction is in the sign, not the
+position. Ranking a whole transcriptome takes a few seconds and says so while it
+works.
+
+> The q-values here are weaker even than the region test's. Patches along one
+> axis are immediate neighbours, so they are about as far from independent as
+> patches get. Rank by rho; use q to filter noise, not as evidence.
 
 ### Reading it
 
@@ -407,7 +547,7 @@ the result goes back to R or scanpy.
 > hypothesis to check against an assay, not a substitute for one. The panel says
 > so, and it is worth repeating to anyone you show a map to.
 
-## 12. Export
+## 13. Export {#export}
 
 The Annotations panel exports GeoJSON in level-0 slide pixels, with QuPath's
 `objectType` and `classification` fields, so it round-trips with QuPath in both
@@ -415,7 +555,7 @@ directions.
 
 ---
 
-## Troubleshooting
+## Troubleshooting {#troubleshooting}
 
 **"Not cross-origin isolated."** The server is not sending COOP/COEP headers.
 `npm run dev` does; a custom host must too.
