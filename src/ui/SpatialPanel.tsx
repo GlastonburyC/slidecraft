@@ -54,7 +54,7 @@ export function SpatialPanel({
     models, activeModelId, status, error, download, progress, result, backend,
     gene, setGene, opacity, setOpacity, visible, setVisible, setActiveModel, setResult,
     onTissueOnly, setOnTissueOnly, setTissueMask, addSignature,
-    mode, setMode, signatures, setSignatures, signatureName, setSignatureName,
+    mode, setMode, signatures, setSignatures, signatureName, setSignatureName, attaching,
   } = spatialState;
 
   const patchPx = useMl((s) => s.patchPx);
@@ -355,7 +355,17 @@ export function SpatialPanel({
         * instructions for obtaining one instead of the controls for the map
         * that was already there -- visible, and with no way to change the gene.
         */}
-      {models.length === 0 && !result ? (
+      {attaching ? (
+        /*
+         * A map on its way is not the absence of one. Reading a whole
+         * transcriptome off disk takes seconds, and offering instructions for
+         * obtaining a model during that window tells the user the opposite of
+         * what is happening.
+         */
+        <div className="hint notice">
+          <span className="spinner" /> Reading {attaching}…
+        </div>
+      ) : models.length === 0 && !result ? (
         <>
           <div className="hint">
             Gene expression predicted from the H&amp;E itself, no assay run on this section.

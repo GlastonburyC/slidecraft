@@ -52,6 +52,15 @@ interface SpatialState {
    * Display-only: the values are untouched, so unticking it brings them back.
    */
   onTissueOnly: boolean;
+  /**
+   * A map is being read off disk.
+   *
+   * Reading and parsing one is asynchronous and, for a whole transcriptome,
+   * takes seconds — during which there is no result. Without this the panel
+   * cannot tell "no map" from "a map on its way", and shows instructions for
+   * obtaining a model to somebody who is three seconds from having one.
+   */
+  attaching: string | null;
   /** Per-patch, 1 where the patch centre falls inside a tissue object. */
   tissueMask: Uint8Array | null;
   /**
@@ -76,6 +85,7 @@ interface SpatialState {
   setSignatureName: (n: string | null) => void;
   setOpacity: (v: number) => void;
   setVisible: (v: boolean) => void;
+  setAttaching: (name: string | null) => void;
   setOnTissueOnly: (v: boolean) => void;
   setTissueMask: (m: Uint8Array | null) => void;
 }
@@ -98,6 +108,7 @@ export const useSpatial = create<SpatialState>((set, get) => ({
   signatureName: null,
   opacity: 0.75,
   visible: true,
+  attaching: null,
   onTissueOnly: true,
   tissueMask: null,
   tissueMaskVersion: 0,
@@ -156,6 +167,7 @@ export const useSpatial = create<SpatialState>((set, get) => ({
   setSignatureName: (signatureName) => set({ signatureName, mode: "signature" }),
   setOpacity: (opacity) => set({ opacity }),
   setVisible: (visible) => set({ visible }),
+  setAttaching: (attaching) => set({ attaching }),
   setOnTissueOnly: (onTissueOnly) => set({ onTissueOnly }),
   setTissueMask: (tissueMask) =>
     set((s) => ({ tissueMask, tissueMaskVersion: s.tissueMaskVersion + 1 })),

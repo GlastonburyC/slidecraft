@@ -363,6 +363,7 @@ export function App() {
     }
     usePredict.getState().reset();
     useSpatial.getState().setResult(null);
+    useSpatial.getState().setAttaching(null);
     useSpatial.getState().setStatus("idle");
 
     void loadLocalModels().then((all) => {
@@ -382,6 +383,7 @@ export function App() {
       ? (slides[activeIdx]?.expression ?? null)
       : null;
     if (sidecar) {
+      useSpatial.getState().setAttaching(sidecar.name);
       void sidecar.arrayBuffer().then((buf) => {
         try {
           const loaded = parseExpressionFile(buf);
@@ -399,6 +401,8 @@ export function App() {
           ]);
         } catch (err) {
           setError(`Could not read ${sidecar.name}: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          useSpatial.getState().setAttaching(null);
         }
       });
     }
