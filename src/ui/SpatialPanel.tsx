@@ -62,6 +62,7 @@ export function SpatialPanel({
   const [query, setQuery] = useState("");
   const [enrichment, setEnrichment] = useState<EnrichmentResult | null>(null);
   const [enrichmentError, setEnrichmentError] = useState<string | null>(null);
+  const [enrichmentBusy, setEnrichmentBusy] = useState<string | null>(null);
   const [regionName, setRegionName] = useState("");
   const [gradient, setGradient] = useState<GradientResult | null>(null);
   const [gradientError, setGradientError] = useState<string | null>(null);
@@ -120,20 +121,33 @@ export function SpatialPanel({
    * either of them.
    */
   const compareRegion = (kind: "gene" | "signature") => {
-    if (!result) return;
+    if (!result || enrichmentBusy) return;
     setEnrichmentError(null);
-    try {
-      const inside = patchesInside(result, selected);
-      setEnrichment(
-        kind === "signature"
-          ? differentialSignatures(result, inside, signatures.signatures, scoreSignature)
-          : differentialExpression(result, inside),
-      );
-      setRegionName(selectedName || "selection");
-    } catch (err) {
-      setEnrichment(null);
-      setEnrichmentError(err instanceof Error ? err.message : String(err));
-    }
+    const n = kind === "signature" ? signatures.signatures.length : result.genes.length;
+    setEnrichmentBusy(
+      `Comparing ${n.toLocaleString()} ${kind === "signature" ? "cell types" : "genes"}…`,
+    );
+
+    // Painted first, then the work: a whole transcriptome takes seconds, and a
+    // button that does not come back reads as broken rather than busy.
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        try {
+          const inside = patchesInside(result, selected);
+          setEnrichment(
+            kind === "signature"
+              ? differentialSignatures(result, inside, signatures.signatures, scoreSignature)
+              : differentialExpression(result, inside),
+          );
+          setRegionName(selectedName || "selection");
+        } catch (err) {
+          setEnrichment(null);
+          setEnrichmentError(err instanceof Error ? err.message : String(err));
+        } finally {
+          setEnrichmentBusy(null);
+        }
+      }, 0);
+    });
   };
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -909,15 +923,25 @@ export function SpatialPanel({
               <div className="row-actions">
                 <button
                   className="btn"
+                  disabled={!!enrichmentBusy}
                   onClick={() => compareRegion("signature")}
                   title="Rank the cell-type modules by how well they separate this region from the rest"
                 >
                   Which cell types?
                 </button>
-                <button className="btn" onClick={() => compareRegion("gene")}>
+                <button
+                  className="btn"
+                  disabled={!!enrichmentBusy}
+                  onClick={() => compareRegion("gene")}
+                >
                   Which genes?
                 </button>
               </div>
+              {enrichmentBusy && (
+                <div className="hint notice">
+                  <span className="spinner" /> {enrichmentBusy}
+                </div>
+              )}
             </>
           )}
           {enrichmentError && <div className="note warn">{enrichmentError}</div>}
